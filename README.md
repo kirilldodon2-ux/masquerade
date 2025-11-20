@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kirilldodon2-ux/masquerade/main/readme%20pic.jpg" width="140" />
+  <img src="https://raw.githubusercontent.com/kirilldodon2-ux/masquerade/.assets/readme%pic.jpg" width="140" />
 </p>
 
 <h1 align="center">Masquerade Engine</h1>
