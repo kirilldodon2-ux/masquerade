@@ -49,7 +49,10 @@ async function sendTelegramMessage(chatId, text, extra = {}) {
       console.log("📤 Message sent to chat", chatId);
     }
   } catch (err) {
-    console.error("Failed to call Telegram sendMessage:", err?.response?.data || err);
+    console.error(
+      "Failed to call Telegram sendMessage:",
+      err?.response?.data || err
+    );
   }
 }
 
@@ -77,7 +80,10 @@ async function sendTelegramPhoto(chatId, imageBuffer, caption) {
       console.log("📤 Photo sent to chat", chatId);
     }
   } catch (err) {
-    console.error("Failed to call Telegram sendPhoto:", err?.response?.data || err);
+    console.error(
+      "Failed to call Telegram sendPhoto:",
+      err?.response?.data || err
+    );
   }
 }
 
@@ -122,18 +128,29 @@ async function downloadTelegramPhoto(message) {
 
 // ---------- helpers: Nano Banana (Gemini 2.5 Flash Image) ----------
 
-async function generateNanoBananaImage(buffer, briefText = "") {
+async function generateNanoBananaImage(buffer, briefText = "", options = {}) {
   if (!VERTEX_API_KEY) {
     console.warn("VERTEX_API_KEY is missing, skipping Nano Banana");
     return null;
   }
 
-  const base64 = buffer.toString("base64");
+  const { inspirationMode = false } = options;
 
+  const base64 = buffer.toString("base64");
   const brief = (briefText || "").trim();
+
+  const baseInstruction = inspirationMode
+    ? `You are a fashion concept engine.
+Use this image as visual inspiration (colors, shapes, textures, composition, mood)
+to design a new full-body outfit on a standing model.
+Do NOT literally redraw objects from the image; translate them into clothing, accessories and silhouette.`
+    : `You are a fashion virtual try-on engine.
+Take this collage of clothing items and dress a standing full-body model
+in these exact clothes and accessories, without changing design, materials or colors.`;
+
   const textPrompt = brief
-    ? `You are a fashion virtual try-on engine. Take this collage of items and dress a standing full-body model in these exact clothes and accessories, without changing design, materials or colors. Stylist brief: ${brief}`
-    : `You are a fashion virtual try-on engine. Take this collage of items and dress a standing full-body model in these exact clothes and accessories, without changing design, materials or colors.`;
+    ? `${baseInstruction}\nStylist brief: ${brief}`
+    : baseInstruction;
 
   const body = {
     contents: [
@@ -200,20 +217,27 @@ async function generateBorealisDescription({ filePath, briefText = "" }) {
     : null;
 
   const systemPrompt = `
-You are BOREALIS EDITORIAL ENGINE 1.0 — a high-precision fashion narrator combining OpenAI clarity, Margiela restraint, Kojima introspection and archival fashion culture.
+You are BOREALIS EDITORIAL ENGINE 1.1 — a high-precision fashion narrator combining
+OpenAI clarity, Margiela restraint, Kojima introspection and archival fashion culture.
 
-Your task: создать атмосферное, кинематографичное описание образа + короткие архивные отсылки на основе референс-лука пользователя.
+Your task: создать атмосферное, кинематографичное описание образа + ровно ПЯТЬ архивных отсылок
+на основе референс-лука пользователя (фото / коллаж / модель).
 
-Стиль голоса Borealis:
-— тихая уверенность  
-— лаконичность  
-— интеллектуальная эстетика  
-— холодная поэтичность  
-— минимализм с эмоциональным подтоном  
-— ощущение архитектуры, света, пространства  
+ГЛАВНОЕ:
+— Ты описываешь СОСТОЯНИЕ персонажа через одежду.
+— Фокус на аутфите: силуэт, линии, ритм, фактуры, пластика.
+— Фон и стиль иллюстрации можно упоминать только как мягкий контекст, а не как главную тему.
+
+Тон Borealis:
+— тихая уверенность
+— лаконичность
+— интеллектуальная эстетика
+— холодная поэтичность
+— минимализм с эмоциональным подтоном
+— ощущение архитектуры, света, пространства
 — модное ДНК будущего бренда
 
-FORMAT OUTPUT:
+FORMAT OUTPUT (JSON ONLY):
 {
   "title": string,
   "description": string,
@@ -221,48 +245,52 @@ FORMAT OUTPUT:
 }
 
 RULES FOR DESCRIPTION:
-— 4–7 предложений  
-— русский язык  
-— не перечисляй предметы списком  
-— не пиши технически или каталогово  
-— не упоминай фото, ИИ, ботов, JSON, одежду по пунктам  
-— подчеркивай атмосферу, состояние, характер  
-— используй метафоры света, движения, пространства  
-— передавай внутренний портрет персонажа  
-— строй текст: состояние → настроение → линии → фактуры → характер → финальная нота  
-— одежду не выдумывай, детали не меняй, но описывай через эмоциональную оптику  
+— 4–7 предложений, русский язык
+— не перечисляй предметы списком («куртка, брюки, шапка»)
+— не используй каталоговый язык как основную ось описания
+— не упоминай фото, ИИ, ботов, JSON, Telegram, нейросети
+— описывай состояние и характер персонажа через свет, линию, силуэт, ритм, фактуру, движение, паузы
+— структура: состояние → настроение → линии → фактуры → характер → финальная нота
+— если фон важен, используй его как мягкий фон настроения, а не как главный сюжет
+— одежду не выдумывай, детали не меняй, но трактуй их эмоционально
 
-RULES FOR REFERENCES:
-— 3–6 строк  
-— реальные эпохи, направления, дизайнеры  
-— коротко (2–4 слова)  
-— усиливают настроение образа  
-— без вымышленных брендов  
+RULES FOR REFERENCES (ВСЕГДА РОВНО 5 ШТУК):
+Массив "references" ДОЛЖЕН содержать ровно 5 строк.
+
+1–3 строки — МОДА:
+  — реальные дизайнеры, дома, эпохи, направления
+  — максимум 3–5 слов
+  — без вымышленных имён и коллекций
+  — если ты не уверен, используй обобщения вроде
+    «японский стрит 2000-х», «европейский авангард 90-х».
+
+2–4 строки — ШИРЕ КУЛЬТУРЫ:
+  — фильмы, аниме, сериалы, музыка, книги, субкультуры
+  — максимум 3–7 слов
+  — подбирай то, что честно резонирует с образом
+  — если аутфит явно отсылает к известному тайтлу (например, Paradise Kiss),
+    можно использовать его как одну из ссылок.
+
+Если сомневаешься в конкретном дизайнере или коллекции,
+лучше дай более общий, но честный культурный или модный маркер,
+чем выдуманную сущность.
 
 RULES FOR TITLE:
-— 2–5 слов  
-— русский язык  
-— без кавычек внутри  
-— можно использовать метафоры в духе «Серая волчья принцесса», «Boho Saddle Luxe»  
-— не повторяй дословно текст описания  
+— 2–5 слов, русский язык
+— без кавычек внутри
+— допускаются метафоры («Туманный рейдер мегаполиса», «Сахарный рок-сад»)
+— не повторяй дословно текст описания
 — избегай банальностей вроде «Стильный городской образ»
 
 COMMUNICATION RULES (VERY IMPORTANT):
-— Ты НИКОГДА не задаёшь вопросы пользователю.  
-— Нельзя писать фразы типа «пришли бриф», «задай», «пожалуйста, отправь».  
-— Если информации мало или бриф пуст, ты молча делаешь разумные предположения и всё равно выдаёшь финальный результат.  
-— Всегда сразу возвращай только итоговый JSON без пояснений и комментариев.
+— Ты НИКОГДА не задаёшь вопросы пользователю.
+— Не просишь дополнительные данные.
+— Если бриф пустой или информации мало — спокойно достраиваешь детали сам.
+— Всегда возвращаешь только JSON-объект без пояснений и комментариев.
 
 ЗОЛОТОЕ ПРАВИЛО:
-Borealis описывает не одежду — а состояние.  
-Одежда лишь инструмент для передачи внутреннего света персонажа.
-
-Always return only JSON:
-{
-  "title": "...",
-  "description": "...",
-  "references": ["...", "..."]
-}
+Borealis описывает не одежду — а состояние.
+Одежда — инструмент передачи внутреннего света персонажа.
 `.trim();
 
   const brief = (briefText || "").trim();
@@ -344,15 +372,69 @@ ${briefBlock}
     }
   }
 
-  const title = parsed.title || "Готовый образ";
-  const description = parsed.description || "";
-  const references = Array.isArray(parsed.references)
+  let title = parsed.title || "Готовый образ";
+  let description = parsed.description || "";
+  let references = Array.isArray(parsed.references)
     ? parsed.references
     : [];
+
+  // Нормализуем references: убираем пустые, обрезаем до 5
+  references = references
+    .filter((r) => typeof r === "string" && r.trim())
+    .map((r) => r.trim());
+  if (references.length > 5) {
+    references = references.slice(0, 5);
+  }
 
   console.log("🟣 Borealis description generated");
 
   return { title, description, references };
+}
+
+// ---------- formatting helper for Telegram ----------
+
+function formatBorealisMessage(
+  modeLabel,
+  borealis,
+  originalBrief = "",
+  options = {}
+) {
+  const { inspirationNote } = options;
+
+  const title = (borealis.title || "Готовый образ").trim();
+  const description = (borealis.description || "").trim();
+  const refs = Array.isArray(borealis.references)
+    ? borealis.references
+    : [];
+
+  const lines = [];
+
+  lines.push(`> Mode: ${modeLabel}`);
+
+  if (inspirationNote) {
+    lines.push(inspirationNote);
+  }
+
+  lines.push("");
+  lines.push(`*${title}*`);
+  lines.push("");
+  lines.push(description);
+
+  if (refs.length > 0) {
+    lines.push("");
+    lines.push("_References:_");
+    for (const r of refs) {
+      lines.push(`• ${r}`);
+    }
+  }
+
+  if (originalBrief) {
+    lines.push("");
+    lines.push("_Brief:_");
+    lines.push(originalBrief);
+  }
+
+  return lines.filter(Boolean).join("\n");
 }
 
 // ---------- simple mode detector ----------
@@ -361,17 +443,6 @@ function detectMode(message) {
   const hasPhoto = Boolean(message.photo && message.photo.length);
   const text = (message.caption || message.text || "").toLowerCase();
 
-  const humanHints = [
-    "на мне",
-    "на себе",
-    "на модели",
-    "model",
-    "модель",
-    "try-on",
-    "примерка",
-    "примерить",
-  ];
-
   const modelOnlyHints = [
     "просто модель",
     "только модель",
@@ -379,32 +450,49 @@ function detectMode(message) {
     "face only",
   ];
 
-  const containsHumanHint = humanHints.some((h) => text.includes(h));
-  const containsModelOnlyHint = modelOnlyHints.some((h) => text.includes(h));
+  const containsModelOnlyHint = modelOnlyHints.some((h) =>
+    text.includes(h)
+  );
 
-  if (!hasPhoto) return "TEXT_ONLY";
-  if (hasPhoto && containsModelOnlyHint) return "MODEL_WAITING_ITEMS";
-  if (hasPhoto && containsHumanHint) return "TRY_ON";
-  if (hasPhoto) return "OUTFIT_ONLY";
-  return "UNKNOWN";
+  if (!hasPhoto) {
+    return "TEXT_ONLY";
+  }
+
+  // Явно говорит, что это только модель → ждём вещи
+  if (containsModelOnlyHint) {
+    return "MODEL_WAITING_ITEMS";
+  }
+
+  // До реального try-on всё с фото считаем коллажом / аутфитом
+  return "OUTFIT_ONLY";
 }
 
 // ---------- handlers ----------
 
 async function handleOutfitOnly(message) {
   const chatId = message.chat.id;
-  const caption = message.caption || message.text || "";
+  const rawCaption = message.caption || message.text || "";
+  const lower = rawCaption.toLowerCase();
 
-  // 1) скачиваем фото
+  // Явный флаг inspiration-режима
+  const inspirationMode =
+    lower.includes("!inspire") ||
+    lower.includes("#inspire") ||
+    lower.includes("!vibe");
+
+  // Чистим подсказку от служебного тега
+  const caption = rawCaption.replace(/!inspire|#inspire|!vibe/gi, "").trim();
+
+  // 1) фото из Telegram
   const { filePath, buffer } = await downloadTelegramPhoto(message);
 
-  // 2) генерим Nano Banana картинку
-  const nbImageBuffer = await generateNanoBananaImage(buffer, caption).catch(
-    (err) => {
-      console.error("Nano Banana error:", err);
-      return null;
-    }
-  );
+  // 2) Nano Banana — с флагом inspirationMode
+  const nbImageBuffer = await generateNanoBananaImage(buffer, caption, {
+    inspirationMode,
+  }).catch((err) => {
+    console.error("Nano Banana error:", err);
+    return null;
+  });
 
   // 3) Borealis описание
   const borealis = await generateBorealisDescription({
@@ -419,45 +507,22 @@ async function handleOutfitOnly(message) {
     };
   });
 
-  const refsText =
-    borealis.references && borealis.references.length
-      ? "\n\nReferences:\n" +
-        borealis.references.map((r) => `• ${r}`).join("\n")
-      : "";
-
-  const captionText = [
-    "*Mode:* Outfit / Collage.",
-    "",
-    borealis.title ? `*${borealis.title}*` : "",
-    "",
-    borealis.description || "",
-    refsText,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const captionText = formatBorealisMessage(
+    "Outfit / Collage.",
+    borealis,
+    caption,
+    {
+      inspirationNote: inspirationMode
+        ? "_Source: visual inspiration, not clothing collage._"
+        : "",
+    }
+  );
 
   if (nbImageBuffer) {
     await sendTelegramPhoto(chatId, nbImageBuffer, captionText);
   } else {
     await sendTelegramMessage(chatId, captionText);
   }
-}
-
-async function handleTryOn(message) {
-  const chatId = message.chat.id;
-  const caption = message.caption || message.text || "";
-
-  const reply = [
-    "*Mode:* Try-on (model + items).",
-    "",
-    "Вижу модель + вещи.",
-    "Пока try-on в разработке — сейчас обрабатываю только коллажи как Outfit / Collage.",
-    "",
-    "Пришли чистый коллаж вещей, и я соберу образ.",
-    caption ? `\nТвой бриф: \`${caption}\`` : "",
-  ].join("\n");
-
-  await sendTelegramMessage(chatId, reply);
 }
 
 async function handleModelWaitingItems(message) {
@@ -478,6 +543,8 @@ async function handleTextOnly(message) {
   const chatId = message.chat.id;
   const text = message.text || "";
 
+  // --- команды ---
+
   if (text.startsWith("/start")) {
     const reply = [
       "🧥 *Borealis Masquerade онлайн.*",
@@ -497,22 +564,42 @@ async function handleTextOnly(message) {
       "1) Пришли коллаж / фото вещей.",
       "2) Добавь пару строк про настроение и контекст.",
       "3) Получи собранный аутфит, визуал и Borealis-описание.",
+      "",
+      "Плюс: можешь просто описать образ словами — я соберу его из текста.",
     ].join("\n");
 
     await sendTelegramMessage(chatId, reply);
     return;
   }
 
-  const reply = [
-    "Я жду изображение с вещами или моделью.",
-    "",
-    "• Отправь коллаж с одеждой.",
-    "• Или фото модели + вещи, которые нужно примерить.",
-    "",
-    "Команды: /start, /help",
-  ].join("\n");
+  // --- новый режим: text-only brief → Borealis outfit ---
 
-  await sendTelegramMessage(chatId, reply);
+  try {
+    const borealis = await generateBorealisDescription({
+      filePath: null, // нет картинки, только текст
+      briefText: text,
+    });
+
+    const reply = formatBorealisMessage(
+      "Text-only brief.",
+      borealis,
+      text
+    );
+
+    await sendTelegramMessage(chatId, reply);
+  } catch (err) {
+    console.error("Borealis text-only error:", err?.response?.data || err);
+
+    const fallback = [
+      "Не удалось обработать бриф через Borealis.",
+      "",
+      "Но ты можешь:",
+      "• прислать коллаж / фото вещей,",
+      "• или попробовать сократить / переформулировать текст.",
+    ].join("\n");
+
+    await sendTelegramMessage(chatId, fallback);
+  }
 }
 
 // ---------- HTTP endpoints ----------
@@ -538,9 +625,6 @@ app.post("/webhook", async (req, res) => {
     switch (mode) {
       case "OUTFIT_ONLY":
         await handleOutfitOnly(message);
-        break;
-      case "TRY_ON":
-        await handleTryOn(message);
         break;
       case "MODEL_WAITING_ITEMS":
         await handleModelWaitingItems(message);
