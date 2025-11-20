@@ -1,10 +1,11 @@
 // src/index.js
 import express from "express";
-import bodyParser from "body-parser";
 import axios from "axios";
 
 const app = express();
-app.use(bodyParser.json());
+
+// JSON body парсер (замена body-parser)
+app.use(express.json());
 
 const PORT = process.env.PORT || 8080;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
