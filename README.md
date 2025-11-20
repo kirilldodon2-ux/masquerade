@@ -120,12 +120,12 @@ Values stored via Secret Manager → auto-mounted into Cloud Run.
 	•	Paid plans with Stripe Billing
 	•	Native iOS + iPadOS app for stylist workspaces
 
- License
+# License
 
 No license.
 Masquerade is a proprietary engine designed for private and commercial use.
 
-🫶 Credits
+# Credits
 
 Built by Kirill Dodon × Borealis Studio.
 
