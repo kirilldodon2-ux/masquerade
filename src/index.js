@@ -1,23 +1,31 @@
 // src/index.js
 import express from "express";
+import bodyParser from "body-parser";
 import axios from "axios";
 
 const app = express();
-app.use(express.json());
-
-// ВАЖНО: сразу трим токен, чтобы убрать \n, пробелы и т.п.
-const RAW_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
-const TELEGRAM_BOT_TOKEN = RAW_TOKEN.trim();
+app.use(bodyParser.json());
 
 const PORT = process.env.PORT || 8080;
 
+// 1) Берём токен и TRIM-им (обрежет пробелы/перевод строки)
+const RAW_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
+const TELEGRAM_BOT_TOKEN = RAW_TOKEN.trim();
+
 console.log("Masquerade booting…");
+
 if (!TELEGRAM_BOT_TOKEN) {
   console.error("❌ TELEGRAM_BOT_TOKEN is missing or empty");
 } else {
+  const safePreview =
+    TELEGRAM_BOT_TOKEN.slice(0, 5) + "..." + TELEGRAM_BOT_TOKEN.slice(-5);
   console.log(
-    "TELEGRAM_BOT_TOKEN: ✅ loaded, length =",
-    TELEGRAM_BOT_TOKEN.length
+    "TELEGRAM_BOT_TOKEN: ✅ loaded",
+    "(len:",
+    TELEGRAM_BOT_TOKEN.length,
+    ", preview:",
+    safePreview,
+    ")"
   );
 }
 
@@ -28,21 +36,18 @@ app.get("/", (req, res) => {
 
 // главный webhook
 app.post("/webhook", async (req, res) => {
-  console.log("==== /webhook HIT ====");
-  console.log("Raw body:", JSON.stringify(req.body, null, 2));
-
   try {
-    const update = req.body || {};
-    const message = update.message || update.edited_message;
+    const update = req.body;
+    console.log("📩 Incoming update:", JSON.stringify(update, null, 2));
 
+    const message = update.message || update.edited_message;
     if (!message) {
       console.log("⚪ No message field in update");
-      return res.status(200).send("no message");
+      return res.sendStatus(200);
     }
 
     const chatId = message.chat.id;
     const text = message.text || message.caption || "";
-
     console.log("💬 From chat:", chatId, "text:", text);
 
     let replyText;
@@ -65,30 +70,28 @@ app.post("/webhook", async (req, res) => {
     }
 
     if (chatId && TELEGRAM_BOT_TOKEN) {
-      const tgUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-      const payload = { chat_id: chatId, text: replyText };
+      const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+      console.log("📡 Telegram URL:", url.replace(TELEGRAM_BOT_TOKEN, "<TOKEN>"));
 
-      console.log("📤 Sending reply to Telegram…");
-      console.log("   chat_id:", chatId);
-      console.log("   URL (masked):", `https://api.telegram.org/bot<token>/sendMessage`);
+      const payload = {
+        chat_id: chatId,
+        text: replyText,
+      };
+      console.log("📦 Telegram payload:", JSON.stringify(payload));
 
-      try {
-        const tgRes = await axios.post(tgUrl, payload);
-        console.log("✅ Telegram response:", tgRes.data);
-      } catch (err) {
-        console.error(
-          "❌ Error calling Telegram sendMessage:",
-          err.response?.data || err.message
-        );
-      }
+      const tgResp = await axios.post(url, payload);
+      console.log("✅ Telegram response:", JSON.stringify(tgResp.data));
     } else {
-      console.error("❌ No chatId or TELEGRAM_BOT_TOKEN missing in handler");
+      console.log("⚠️ No chatId or TELEGRAM_BOT_TOKEN missing");
     }
 
-    return res.status(200).send("ok");
+    res.sendStatus(200);
   } catch (err) {
-    console.error("❌ Error in /webhook handler:", err);
-    return res.status(200).send("ok");
+    console.error(
+      "❌ Error in /webhook:",
+      err?.response?.data || err.message || err
+    );
+    res.sendStatus(200);
   }
 });
 
