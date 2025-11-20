@@ -1,66 +1,124 @@
-// index.js — минимальное живое ядро для Cloud Run + Telegram
+// src/index.js
 
-const express = require('express');
-const axios = require('axios');
+const express = require("express");
 
 const app = express();
 app.use(express.json());
 
-// Читаем секреты из env
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const VERTEX_API_KEY = process.env.VERTEX_API_KEY;
-const PROJECT_ID = process.env.PROJECT_ID;
-const PORT = process.env.PORT || 8080;
+// ── Env ──────────────────────────────────────────────────────────────
+const {
+  TELEGRAM_BOT_TOKEN,
+  OPENAI_API_KEY,
+  VERTEX_API_KEY,
+  PROJECT_ID,
+  PORT = 8080,
+  NODE_ENV,
+} = process.env;
 
-console.log('Masquerade booting…');
-console.log('PROJECT_ID:', PROJECT_ID || '⛔ not set');
-console.log('TELEGRAM_BOT_TOKEN:', TELEGRAM_BOT_TOKEN ? '✅ loaded' : '⛔ missing');
-console.log('OPENAI_API_KEY:', OPENAI_API_KEY ? '✅ loaded' : '⛔ missing');
-console.log('VERTEX_API_KEY:', VERTEX_API_KEY ? '✅ loaded' : '⛔ missing');
-
-const TG_API = TELEGRAM_BOT_TOKEN
+const TELEGRAM_API = TELEGRAM_BOT_TOKEN
   ? `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`
   : null;
 
-// health-check
-app.get('/', (req, res) => {
-  res.send('Masquerade Engine is alive 🧥');
+// Логи при старте (без утечки секретов)
+console.log("Masquerade booting…");
+console.log("PROJECT_ID:", PROJECT_ID || "❌ not set");
+console.log("NODE_ENV:", NODE_ENV || "not set");
+console.log("TELEGRAM_BOT_TOKEN:", TELEGRAM_API ? "✅ loaded" : "❌ missing");
+console.log("OPENAI_API_KEY:", OPENAI_API_KEY ? "✅ loaded" : "❌ missing");
+console.log("VERTEX_API_KEY:", VERTEX_API_KEY ? "✅ loaded" : "❌ missing");
+
+// ── Healthcheck / root ──────────────────────────────────────────────
+app.get("/", (req, res) => {
+  res.status(200).send("Masquerade Engine is alive 🧥");
 });
 
-// Telegram webhook
-app.post('/webhook', async (req, res) => {
+// ── Telegram webhook ────────────────────────────────────────────────
+app.post("/webhook", async (req, res) => {
+  console.log("Incoming update:", JSON.stringify(req.body, null, 2));
+
   try {
-    console.log('Incoming update:', JSON.stringify(req.body, null, 2));
+    const update = req.body;
 
-    const msg = req.body.message;
-    if (!msg || !msg.chat || !msg.chat.id) {
-      return res.status(200).send('ok');
+    if (!update.message) {
+      console.log("No message field in update → ok");
+      return res.status(200).send("ok");
     }
 
-    const chatId = msg.chat.id;
-    const text = msg.text || '';
+    const message = update.message;
+    const chatId = message.chat.id;
+    const text = message.text || "";
 
-    const replyText = text
-      ? `Masquerade online.\nYou said: "${text}"`
-      : 'Masquerade online. Send me something.';
-
-    if (TG_API) {
-      await axios.post(`${TG_API}/sendMessage`, {
-        chat_id: chatId,
-        text: replyText,
-      });
+    // ── Простое роутирование команд ────────────────────────────────
+    if (text === "/start") {
+      await sendTelegramMessage(
+        chatId,
+        "🧥 *Borealis Masquerade — Fashion Intelligence Engine*\n\n" +
+          "Отправь мне фото или коллаж вещей — дальше я буду генерировать образы и истории.\n\n" +
+          "_(beta mode: пока отвечаю тестовыми сообщениями)_",
+        { parse_mode: "Markdown" }
+      );
+    } else if (text === "/ping") {
+      await sendTelegramMessage(chatId, "pong 🧥");
     } else {
-      console.error('No TELEGRAM_BOT_TOKEN, cannot send reply');
+      // Пока что просто echo + логика для будущего пайплайна
+      await sendTelegramMessage(
+        chatId,
+        `Я получил: \`${text}\`\n\nСкоро здесь будет Nano Banana + Borealis Narrator 🍌`,
+        { parse_mode: "Markdown" }
+      );
     }
 
-    res.status(200).send('ok');
+    return res.status(200).send("ok");
   } catch (err) {
-    console.error('Error in /webhook handler:', err);
-    res.status(500).send('error');
+    console.error("Error handling Telegram webhook:", err);
+    // Телеге всегда важно вернуть 200, иначе она будет ретраить
+    return res.status(200).send("ok");
   }
 });
 
+// ── Helpers ─────────────────────────────────────────────────────────
+async function sendTelegramMessage(chatId, text, extra = {}) {
+  if (!TELEGRAM_API) {
+    console.error("TELEGRAM_API is not configured, cannot send message");
+    return;
+  }
+
+  const payload = {
+    chat_id: chatId,
+    text,
+    parse_mode: "Markdown",
+    ...extra,
+  };
+
+  try {
+    const resp = await fetch(`${TELEGRAM_API}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    let data = null;
+    try {
+      data = await resp.json();
+    } catch {
+      // если ответ не JSON
+    }
+
+    if (!resp.ok || (data && !data.ok)) {
+      console.error("Telegram sendMessage error:", {
+        status: resp.status,
+        statusText: resp.statusText,
+        data,
+      });
+    } else {
+      console.log("Message sent to chat", chatId);
+    }
+  } catch (err) {
+    console.error("Failed to call Telegram API:", err);
+  }
+}
+
+// ── Start server ────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`Masquerade listening on port ${PORT}`);
 });
