@@ -10,16 +10,16 @@
 
 ---
 
-## ✨ What Masquerade Is
+##  What Masquerade Is
 Masquerade is a lightweight, production-ready engine that transforms raw item collages into full fashion visuals and editorial descriptions.  
 It powers AI outfit-builders, stylist assistants, and fashion-tech experiences.
 
 The system combines:
 
-- 🖼 **Nano Banana** — state-of-the-art AI outfit composition  
-- 🧠 **Borealis Editorial Engine** — atmospheric fashion narration  
-- 🤖 **Telegram Bot Layer** — user delivery interface  
-- ☁️ **Cloud Run** — scalable infra with near-zero idle cost  
+-  **Nano Banana** — state-of-the-art AI outfit composition  
+-  **Borealis Editorial Engine** — atmospheric fashion narration  
+-  **Telegram Bot Layer** — user delivery interface  
+-  **Cloud Run** — scalable infra with near-zero idle cost  
 
 Masquerade = AI × Fashion × Design Philosophy.
 
@@ -49,7 +49,7 @@ Nu este un serviciu — este un instrument pentru cei care văd mai mult.
 
 ---
 
-# 🧩 Architecture Overview
+#  Architecture Overview
 ```
 /masquerade
 ├── src/
@@ -67,7 +67,7 @@ Nu este un serviciu — este un instrument pentru cei care văd mai mult.
 ```
 ---
 
-# 🚀 Deployment (Cloud Run)
+#  Deployment (Cloud Run)
 
 Masquerade is optimized for **cheap, fast, globally-scaled** deployment.
 
@@ -89,7 +89,7 @@ gcloud run deploy borealis-engine \
 3. Set Telegram Webhook
 https://api.telegram.org/bot<TELEGRAM_TOKEN>/setWebhook?url=<CLOUD-RUN-URL>/webhook
 
-🔐 Environment Variables (Secret Manager)
+ Environment Variables (Secret Manager)
 
 Key
 Description
@@ -106,7 +106,7 @@ Values stored via Secret Manager → auto-mounted into Cloud Run.
 
 ```
 
-🎛 Roadmap
+ Roadmap
 	•	Language switcher /language (EN / FR / RU / RO / JP / CN)
 	•	/settings panel
 	•	Promo codes for free generations
