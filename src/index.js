@@ -4,37 +4,42 @@ import axios from "axios";
 
 const app = express();
 
-// Парсим JSON от Telegram
+// ВАЖНО: парсим JSON от Telegram
 app.use(express.json());
 
 const PORT = process.env.PORT || 8080;
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
 console.log("Masquerade booting…");
-console.log(
-  "TELEGRAM_BOT_TOKEN:",
-  TELEGRAM_BOT_TOKEN ? "✅ loaded" : "❌ MISSING"
-);
+if (!TELEGRAM_BOT_TOKEN) {
+  console.error("❌ TELEGRAM_BOT_TOKEN is missing");
+} else {
+  console.log("TELEGRAM_BOT_TOKEN: ✅ loaded");
+}
 
-// Health-check / браузер
+// health-check
 app.get("/", (req, res) => {
   res.send("Masquerade Engine is running.");
 });
 
-// Главный webhook
+// главный webhook
 app.post("/webhook", async (req, res) => {
-  try {
-    const update = req.body;
-    console.log("📩 Incoming update:", JSON.stringify(update, null, 2));
+  console.log("==== /webhook HIT ====");
+  console.log("Raw body:", JSON.stringify(req.body, null, 2));
 
+  try {
+    const update = req.body || {};
     const message = update.message || update.edited_message;
+
     if (!message) {
-      console.log("⚪ No message in update");
-      return res.sendStatus(200);
+      console.log("⚪ No message field in update");
+      return res.status(200).send("no message");
     }
 
     const chatId = message.chat.id;
     const text = message.text || message.caption || "";
+
+    console.log("💬 From chat:", chatId, "text:", text);
 
     let replyText;
 
@@ -49,47 +54,36 @@ app.post("/webhook", async (req, res) => {
         "1) Send a collage with items.\n" +
         "2) Optionally add a text brief (vibe, context, body type).\n" +
         "3) Get an AI-built outfit + Borealis description.";
-    } else if (text.startsWith("/about")) {
-      replyText =
-        "Outfit Builder by Borealis Masquerade — Fashion Intelligence Engine.\n" +
-        "Industry-grade try-on & editorial descriptions for fashion, film and creative teams.";
     } else {
       replyText =
         "Got your message.\n\n" +
-        "Right now I’m in minimal mode: I respond to /start and /help.\n" +
-        "Very soon this will be a full outfit pipeline again.";
+        "Soon I’ll turn this into a full outfit pipeline. For now, send /start or a collage.";
     }
 
-    if (!TELEGRAM_BOT_TOKEN) {
-      console.error("❌ No TELEGRAM_BOT_TOKEN inside /webhook, cannot reply");
-      return res.sendStatus(200);
+    if (chatId && TELEGRAM_BOT_TOKEN) {
+      const tgUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+      const payload = { chat_id: chatId, text: replyText };
+
+      console.log("📤 Sending reply:", JSON.stringify(payload));
+
+      try {
+        const tgRes = await axios.post(tgUrl, payload);
+        console.log("✅ Telegram response:", tgRes.data);
+      } catch (err) {
+        console.error(
+          "❌ Error calling Telegram sendMessage:",
+          err.response?.data || err.message
+        );
+      }
+    } else {
+      console.error("❌ No chatId or TELEGRAM_BOT_TOKEN missing in handler");
     }
 
-    if (!chatId) {
-      console.error("❌ No chat_id in message");
-      return res.sendStatus(200);
-    }
-
-    const tgUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-
-    const payload = {
-      chat_id: chatId,
-      text: replyText,
-    };
-
-    console.log("📤 Sending reply:", JSON.stringify(payload, null, 2));
-
-    const tgRes = await axios.post(tgUrl, payload);
-    console.log("✅ Telegram response:", tgRes.data);
-
-    res.sendStatus(200);
+    // Всегда отвечаем 200, чтобы Telegram не спамил ретраями
+    return res.status(200).send("ok");
   } catch (err) {
-    console.error(
-      "❌ Error in /webhook:",
-      err?.response?.data || err.message || err
-    );
-    // Всё равно 200, чтобы Telegram не зацикливал ретраи
-    res.sendStatus(200);
+    console.error("❌ Error in /webhook handler:", err);
+    return res.status(200).send("ok");
   }
 });
 
