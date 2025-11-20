@@ -292,7 +292,7 @@ RULES FOR REFERENCES (ВСЕГДА РОВНО 5 ШТУК):
   — если ты не уверен, используй обобщения вроде
     «японский стрит 2000-х», «европейский авангард 90-х».
 
-1-2 строки — ШИРЕ КУЛЬТУРЫ:
+1–2 строки — ШИРЕ КУЛЬТУРЫ:
   — фильмы, аниме, сериалы, музыка, книги, субкультуры
   — максимум 3–7 слов
   — подбирай то, что честно резонирует с образом
@@ -421,12 +421,18 @@ ${briefBlock}
 
 // ---------- formatting helper for Telegram ----------
 
-function formatBorealisMessage(modeLabel, borealis) {
+function formatBorealisMessage(modeLabel, borealis, options = {}) {
+  const { inspirationNote } = options;
+
   const title = (borealis.title || "Готовый образ").trim();
   const description = (borealis.description || "").trim();
   const refs = Array.isArray(borealis.references)
     ? borealis.references
     : [];
+
+  const headerLines = inspirationNote
+    ? [`> Mode: ${modeLabel}`, inspirationNote]
+    : [`> Mode: ${modeLabel}`];
 
   const refsBlock =
     refs.length > 0
@@ -434,7 +440,7 @@ function formatBorealisMessage(modeLabel, borealis) {
       : "";
 
   return [
-    `> Mode: ${modeLabel}`,
+    ...headerLines,
     "",
     `*${title}*`,
     "",
@@ -515,16 +521,11 @@ async function handleOutfitOnly(message) {
     };
   });
 
-  const captionText = formatBorealisMessage(
-    "Outfit / Collage.",
-    borealis,
-    caption,
-    {
-      inspirationNote: inspirationMode
-        ? "_Source: visual inspiration, not clothing collage._"
-        : "",
-    }
-  );
+  const captionText = formatBorealisMessage("Outfit / Collage.", borealis, {
+    inspirationNote: inspirationMode
+      ? "_Source: visual inspiration, not clothing collage._"
+      : "",
+  });
 
   if (nbImageBuffer) {
     await sendTelegramPhoto(chatId, nbImageBuffer, captionText);
@@ -588,11 +589,7 @@ async function handleTextOnly(message) {
       briefText: text,
     });
 
-    const reply = formatBorealisMessage(
-      "Text-only brief.",
-      borealis,
-      text
-    );
+    const reply = formatBorealisMessage("Text-only brief.", borealis);
 
     await sendTelegramMessage(chatId, reply);
   } catch (err) {
