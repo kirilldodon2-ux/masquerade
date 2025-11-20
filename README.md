@@ -135,7 +135,6 @@ Built by Kirill Dodon × Borealis Studio.
 
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kirilldodon2-ux/masquerade/main/.assets/bot_pic2.jpeg" width="140" />
   <br/>
   <strong>hello@dodon.one</strong>
 </p>
