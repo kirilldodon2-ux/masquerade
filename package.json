@@ -2,6 +2,7 @@
   "name": "masquerade",
   "version": "0.1.0",
   "description": "Borealis Masquerade — Fashion Intelligence Engine",
+  "type": "module",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js"
