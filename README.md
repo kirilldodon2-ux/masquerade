@@ -133,13 +133,6 @@ Built by Kirill Dodon × Borealis Studio.
 
 ## 📬 Contact
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/kirilldodon2-ux/masquerade/main/.assets/readme-contact.jpg" width="200" />
-</p>
-
-<p align="center">
-  <strong>hello@dodon.one</strong>
-</p>
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/kirilldodon2-ux/masquerade/main/bot_pic2.jpeg" width="120" />
