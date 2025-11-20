@@ -7,26 +7,27 @@ const app = express();
 app.use(bodyParser.json());
 
 const PORT = process.env.PORT || 8080;
+
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const VERTEX_API_KEY = process.env.VERTEX_API_KEY;
 
-if (!TELEGRAM_BOT_TOKEN) {
-  console.error("❌ TELEGRAM_BOT_TOKEN is missing");
-} else {
-  console.log("TELEGRAM_BOT_TOKEN: ✅ loaded");
-}
+if (!TELEGRAM_BOT_TOKEN) console.error("❌ TELEGRAM_BOT_TOKEN is missing");
+else console.log("TELEGRAM_BOT_TOKEN: ✅ loaded");
 
-if (!OPENAI_API_KEY) {
-  console.error("❌ OPENAI_API_KEY is missing — AI описание работать не будет");
-} else {
-  console.log("OPENAI_API_KEY: ✅ loaded");
-}
+if (!OPENAI_API_KEY) console.error("❌ OPENAI_API_KEY is missing");
+else console.log("OPENAI_API_KEY: ✅ loaded");
+
+if (!VERTEX_API_KEY) console.error("❌ VERTEX_API_KEY is missing");
+else console.log("VERTEX_API_KEY: ✅ loaded");
 
 console.log("Masquerade booting…");
 
-// ---------- helpers: Telegram ----------
+// -------------------------------------------------------------------
+// Helpers
+// -------------------------------------------------------------------
 
 async function sendTelegramMessage(chatId, text, extra = {}) {
   if (!TELEGRAM_BOT_TOKEN) return;
@@ -51,117 +52,280 @@ async function sendTelegramMessage(chatId, text, extra = {}) {
 }
 
 /**
- * Качаем файл из Telegram и возвращаем { base64, mime }.
+ * Качаем самое большое фото из message.photo:
+ * 1) getFile → file_path
+ * 2) file_url → buffer
  */
-async function downloadTelegramImage(fileId) {
-  // 1) узнаём путь файла
+async function downloadTelegramPhoto(message) {
+  const photos = message.photo;
+  if (!photos || !photos.length) {
+    throw new Error("No photo array in message");
+  }
+
+  const largestPhoto = photos[photos.length - 1];
+  const fileId = largestPhoto.file_id;
+  if (!fileId) throw new Error("No file_id in largest photo");
+
   const fileResp = await axios.get(`${TELEGRAM_API}/getFile`, {
     params: { file_id: fileId },
   });
 
-  if (!fileResp.data.ok) {
-    throw new Error(`getFile failed: ${JSON.stringify(fileResp.data)}`);
+  const filePath = fileResp.data?.result?.file_path;
+  if (!filePath) {
+    console.error("getFile response:", fileResp.data);
+    throw new Error("getFile did not return file_path");
   }
 
-  const filePath = fileResp.data.result.file_path;
   const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`;
+  const photoResp = await axios.get(fileUrl, { responseType: "arraybuffer" });
+  const buffer = Buffer.from(photoResp.data);
 
-  // Очень грубо определяем mime по расширению
-  const ext = (filePath.split(".").pop() || "").toLowerCase();
-  const mime =
-    ext === "png"
-      ? "image/png"
-      : ext === "webp"
-      ? "image/webp"
-      : "image/jpeg";
+  console.log("📥 Downloaded photo", { fileId, filePath });
 
-  // 2) качаем байты
-  const imgResp = await axios.get(fileUrl, { responseType: "arraybuffer" });
-  const base64 = Buffer.from(imgResp.data, "binary").toString("base64");
-
-  return { base64, mime };
-}
-
-// ---------- helpers: OpenAI Borealis Engine ----------
-
-async function generateOutfitDescriptionFromImage({ base64Image, mime, caption }) {
-  if (!OPENAI_API_KEY) {
-    return "⚠️ OPENAI_API_KEY не настроен, поэтому я пока не могу сделать Borealis-описание.";
-  }
-
-  const systemPrompt = `
-You are *Borealis Editorial Engine* inside the Masquerade fashion system.
-You analyze outfit collages and write concise, atmospheric fashion editorials.
-
-Rules:
-- Think like a stylist + fashion editor.
-- Be specific about silhouette, fabric, details, references (designers, subcultures, eras).
-- Tone: intelligent, cinematic, but not pretentious.
-- Output in Markdown, with clear sections.
-
-Structure:
-1. Title line — a short poetic name for the outfit.
-2. One paragraph — high-level vibe and context (where / who / why).
-3. Bullet list:
-   - Key pieces (top, bottom, outerwear, shoes, accessories).
-   - Silhouette & proportions.
-   - Texture & color story.
-4. One closing line — how this look feels in motion / in a scene.
-`.trim();
-
-  const userText = [
-    "Analyze this outfit collage and write an editorial description.",
-    "Focus on the clothes, not the person.",
-    caption ? `User brief / vibe: "${caption}".` : null,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-
-  try {
-    const resp = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        // при желании поменяешь на свою модель
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: userText },
-              {
-                type: "image_url",
-                image_url: {
-                  url: `data:${mime};base64,${base64Image}`,
-                },
-              },
-            ],
-          },
-        ],
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        timeout: 30000,
-      }
-    );
-
-    const content =
-      resp.data.choices?.[0]?.message?.content?.trim() ||
-      "No response from model.";
-
-    return content;
-  } catch (err) {
-    console.error("OpenAI error:", err?.response?.data || err);
-    return "⚠️ Не получилось вызвать Borealis Engine — проверь OpenAI логи / ключ.";
-  }
+  return { fileId, filePath, fileUrl, buffer, photoInfo: largestPhoto };
 }
 
 /**
- * Очень простой детектор режима.
- * Потом сюда добавим real CV / Nano Banana сигналы.
+ * Вызов Nano Banana (Gemini 2.5 Flash Image).
+ * Принимает buffer коллажа и бриф, возвращает base64 с сгенерённым аутфитом.
+ */
+async function generateNanoBananaImage(buffer, briefText = "") {
+  if (!VERTEX_API_KEY) {
+    console.warn("VERTEX_API_KEY not set, skipping Nano Banana call");
+    return null;
+  }
+
+  const base64 = buffer.toString("base64");
+
+  const brief = (briefText || "").trim();
+  const textPrompt =
+    brief.length > 0
+      ? `You are a fashion virtual try-on engine. Take this collage of items and dress a standing full-body model in these exact clothes and accessories, without changing design, materials or colors. Stylist brief: ${brief}`
+      : `You are a fashion virtual try-on engine. Take this collage of items and dress a standing full-body model in these exact clothes and accessories, without changing design, materials or colors.`;
+
+  const body = {
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { text: textPrompt },
+          {
+            inline_data: {
+              mime_type: "image/jpeg",
+              data: base64,
+            },
+          },
+        ],
+      },
+    ],
+  };
+
+  const url =
+    "https://aiplatform.googleapis.com/v1/" +
+    "publishers/google/models/gemini-2.5-flash-image:generateContent";
+
+  const resp = await axios.post(url, body, {
+    params: { key: VERTEX_API_KEY },
+    headers: { "Content-Type": "application/json" },
+    timeout: 60000,
+  });
+
+  // рекурсивный поиск inline_data.data
+  function findInlineData(node) {
+    if (!node || typeof node !== "object") return null;
+    if (node.inline_data?.data) return node.inline_data;
+    if (node.inlineData?.data) return node.inlineData;
+
+    for (const val of Object.values(node)) {
+      const found = findInlineData(val);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  const inline = findInlineData(resp.data);
+  if (!inline?.data) {
+    console.error("Nano Banana response has no inline_data:", resp.data);
+    throw new Error("Nano Banana: no inline_data.data found");
+  }
+
+  console.log("🍌 Nano Banana image generated (base64 length:", inline.data.length, ")");
+  return { b64_image: inline.data };
+}
+
+/**
+ * Вызов OpenAI Responses для Borealis-описания.
+ * На вход: filePath из Telegram и текстовый бриф.
+ */
+async function generateBorealisDescription({ filePath, brief }) {
+  if (!OPENAI_API_KEY) {
+    console.warn("OPENAI_API_KEY not set, skipping Borealis description");
+    return null;
+  }
+
+  let imageUrl = null;
+  if (filePath) {
+    imageUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`;
+  }
+
+  const systemPrompt = `
+You are BOREALIS EDITORIAL ENGINE 1.0 — a high-precision fashion narrator combining OpenAI clarity, Margiela restraint, Kojima introspection and archival fashion culture.
+
+Your task: создать атмосферное, кинематографичное описание образа + короткие архивные отсылки на основе референс-лука пользователя.
+
+Стиль голоса Borealis:
+— тихая уверенность  
+— лаконичность  
+— интеллектуальная эстетика  
+— холодная поэтичность  
+— минимализм с эмоциональным подтоном  
+— ощущение архитектуры, света, пространства  
+— модное ДНК будущего бренда
+
+FORMAT OUTPUT:
+{
+  "title": string,
+  "description": string,
+  "references": string[]
+}
+
+RULES FOR DESCRIPTION:
+— 4–7 предложений  
+— русский язык  
+— не перечисляй предметы списком  
+— не пиши технически или каталогово  
+— не упоминай фото, ИИ, ботов, JSON, одежду по пунктам  
+— подчеркивай атмосферу, состояние, характер  
+— используй метафоры света, движения, пространства  
+— передавай внутренний портрет персонажа  
+— строй текст: состояние → настроение → линии → фактуры → характер → финальная нота  
+— одежду не выдумывай, детали не меняй, но описывай через эмоциональную оптику  
+
+RULES FOR REFERENCES:
+— 3–6 строк  
+— реальные эпохи, направления, дизайнеры  
+— коротко (2–4 слова)  
+— усиливают настроение образа  
+— без вымышленных брендов  
+
+RULES FOR TITLE:
+— 2–5 слов  
+— русский язык  
+— без кавычек внутри  
+— можно использовать метафоры в духе «Серая волчья принцесса», «Boho Saddle Luxe»  
+— не повторяй дословно текст описания  
+— избегай банальностей вроде «Стильный городской образ»
+
+COMMUNICATION RULES (VERY IMPORTANT):
+— Ты НИКОГДА не задаёшь вопросы пользователю.  
+— Нельзя писать фразы типа «пришли бриф», «задай», «пожалуйста, отправь».  
+— Если информации мало или бриф пуст, ты молча делаешь разумные предположения и всё равно выдаёшь финальный результат.  
+— Всегда сразу возвращай только итоговый JSON без пояснений и комментариев.
+
+ЗОЛОТОЕ ПРАВИЛО:
+Borealis описывает не одежду — а состояние.  
+Одежда лишь инструмент для передачи внутреннего света персонажа.
+
+Always return only JSON:
+{
+  "title": "...",
+  "description": "...",
+  "references": ["...", "..."]
+}
+`.trim();
+
+  const cleanBrief = (brief || "").trim();
+
+  const briefBlock = cleanBrief
+    ? `Стилевой бриф от пользователя (используй как контекст, не задавай уточняющих вопросов):\n${cleanBrief}\n`
+    : `Стилевой бриф отсутствует. Не задавай вопросов и не проси дополнительных данных — аккуратно дострой недостающие детали сам.\n`;
+
+  const baseIntro = imageUrl
+    ? `У тебя есть пользовательский коллаж / фото с набором вещей для образа.`
+    : `У тебя нет картинки, только текстовый контекст. Представь модный образ сам.`;
+
+  const userText = `
+${baseIntro}
+${briefBlock}
+
+На основе этого создай один цельный образ и верни только JSON в формате:
+{ "title": "...", "description": "...", "references": ["...", "..."] }
+в фирменном стиле Borealis, без каких-либо вопросов пользователю.
+`.trim();
+
+  const body = {
+    model: "gpt-4.1",
+    instructions: systemPrompt,
+    input: [
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: userText },
+          ...(imageUrl
+            ? [{ type: "input_image", image_url: imageUrl }]
+            : []),
+        ],
+      },
+    ],
+    temperature: 0.9,
+    text: { format: { type: "text" } },
+  };
+
+  const resp = await axios.post("https://api.openai.com/v1/responses", body, {
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    timeout: 60000,
+  });
+
+  const output = resp.data.output || [];
+  const firstMessage = output[0] || {};
+  const contentArr = firstMessage.content || [];
+  const textItem = contentArr.find((c) => c.type === "output_text");
+  const rawText = (textItem && textItem.text && textItem.text.trim()) || "";
+
+  if (!rawText) {
+    console.error("Borealis raw response:", resp.data);
+    throw new Error("Borealis: empty text in OpenAI response");
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch (e) {
+    const match = rawText.match(/\{[\s\S]*\}/);
+    if (match) {
+      parsed = JSON.parse(match[0]);
+    } else {
+      parsed = {
+        title: "Готовый образ",
+        description: rawText,
+        references: [],
+      };
+    }
+  }
+
+  const title = parsed.title || "Готовый образ";
+  const description = parsed.description || "";
+  const references = Array.isArray(parsed.references)
+    ? parsed.references
+    : [];
+
+  console.log("🧊 Borealis description generated:", title);
+
+  return {
+    title,
+    description,
+    references,
+    image_url: imageUrl || null,
+    raw_json: parsed,
+  };
+}
+
+/**
+ * Очень простой детектор режима (по тексту + наличию фото).
+ * Потом сюда подвесим CV / multi-image.
  */
 function detectMode(message) {
   const hasPhoto = Boolean(message.photo && message.photo.length);
@@ -188,68 +352,90 @@ function detectMode(message) {
   const containsHumanHint = humanHints.some((h) => text.includes(h));
   const containsModelOnlyHint = modelOnlyHints.some((h) => text.includes(h));
 
-  if (!hasPhoto) {
-    return "TEXT_ONLY";
-  }
+  if (!hasPhoto) return "TEXT_ONLY";
 
-  if (hasPhoto && containsModelOnlyHint) {
-    return "MODEL_WAITING_ITEMS";
-  }
+  if (hasPhoto && containsModelOnlyHint) return "MODEL_WAITING_ITEMS";
+  if (hasPhoto && containsHumanHint) return "TRY_ON";
 
-  if (hasPhoto && containsHumanHint) {
-    return "TRY_ON";
-  }
-
-  if (hasPhoto) {
-    return "OUTFIT_ONLY";
-  }
-
-  return "UNKNOWN";
+  return "OUTFIT_ONLY";
 }
 
-// ---------- pipeline: Outfit Only = реальный AI ----------
+// -------------------------------------------------------------------
+// Handlers
+// -------------------------------------------------------------------
+
+function formatBorealisReply({ modeLabel, borealis, caption }) {
+  if (!borealis) {
+    return [
+      `*Mode:* ${modeLabel}.`,
+      "",
+      "Что-то пошло не так при генерации описания.",
+      "Попробуй отправить коллаж ещё раз чуть позже.",
+    ].join("\n");
+  }
+
+  const refs =
+    borealis.references && borealis.references.length
+      ? "_References:_\n" +
+        borealis.references.map((r) => `• ${r}`).join("\n")
+      : "";
+
+  return [
+    `*Mode:* ${modeLabel}.`,
+    "",
+    `*${borealis.title || "Готовый образ"}*`,
+    "",
+    borealis.description || "",
+    "",
+    refs,
+    caption ? `\n_Твой бриф:_ ${caption}` : "",
+  ]
+    .join("\n")
+    .trim();
+}
 
 async function handleOutfitOnly(message) {
   const chatId = message.chat.id;
   const caption = message.caption || message.text || "";
 
   try {
-    // Берём самое большое фото
-    const photos = message.photo || [];
-    const bestPhoto = photos[photos.length - 1];
-    const fileId = bestPhoto.file_id;
+    // 1) скачиваем коллаж
+    const photo = await downloadTelegramPhoto(message);
 
-    console.log("🖼  Handling OUTFIT_ONLY, file_id:", fileId);
+    // 2) пробуем сгенерировать try-on (Nano Banana)
+    try {
+      await generateNanoBananaImage(photo.buffer, caption);
+      // позже сюда добавим отправку картинки в Telegram
+    } catch (err) {
+      console.error("Nano Banana error:", err?.response?.data || err);
+    }
 
-    const { base64, mime } = await downloadTelegramImage(fileId);
-    const editorial = await generateOutfitDescriptionFromImage({
-      base64Image: base64,
-      mime,
+    // 3) Borealis-описание
+    let borealis = null;
+    try {
+      borealis = await generateBorealisDescription({
+        filePath: photo.filePath,
+        brief: caption,
+      });
+    } catch (err) {
+      console.error("Borealis error:", err?.response?.data || err);
+    }
+
+    const reply = formatBorealisReply({
+      modeLabel: "Outfit / Collage",
+      borealis,
       caption,
     });
 
-    const reply = [
-      "*Mode:* Outfit / Collage.",
-      "",
-      "Я разобрал коллаж и собрал Borealis-описание образа:",
-      "",
-      editorial,
-    ].join("\n");
-
     await sendTelegramMessage(chatId, reply);
   } catch (err) {
-    console.error("Error in handleOutfitOnly:", err);
-    const fallback = [
-      "*Mode:* Outfit / Collage.",
-      "",
-      "Я получил изображение, но не смог обработать его до конца.",
-      "Проверь, что коллаж в адекватном разрешении и попробуй ещё раз.",
-    ].join("\n");
-    await sendTelegramMessage(chatId, fallback);
+    console.error("handleOutfitOnly error:", err?.response?.data || err);
+    await sendTelegramMessage(
+      chatId,
+      "⚠️ Не удалось обработать коллаж, попробуй ещё раз чуть позже."
+    );
   }
 }
-
-// ---------- TRY_ON & другие режимы пока оставляем как были ----------
 
 async function handleTryOn(message) {
   const chatId = message.chat.id;
@@ -259,8 +445,9 @@ async function handleTryOn(message) {
     "*Mode:* Try-on (model + items).",
     "",
     "Вижу модель + вещи.",
-    "Следующий шаг — подключить визуальный try-on (Nano Banana).",
-    "Пока что я только фиксирую, что это режим примерки.",
+    "Следующим шагом подключим полноценный try-on пайплайн (Nano Banana + Borealis).",
+    "",
+    "Пока что работаю только как Outfit / Collage по картинке вещей.",
     caption ? `\nТвой бриф: \`${caption}\`` : "",
   ].join("\n");
 
@@ -322,7 +509,9 @@ async function handleTextOnly(message) {
   await sendTelegramMessage(chatId, reply);
 }
 
-// ---------- HTTP endpoints ----------
+// -------------------------------------------------------------------
+// HTTP endpoints
+// -------------------------------------------------------------------
 
 app.get("/", (req, res) => {
   res.send("Masquerade Engine is running.");
