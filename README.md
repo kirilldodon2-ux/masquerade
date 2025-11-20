@@ -11,6 +11,10 @@
 ---
 
 ##  What Masquerade Is
+
+Industry-grade try-on.
+Powered by Borealis Masquerade — Fashion Intelligence Engine.
+
 Masquerade is a lightweight, production-ready engine that transforms raw item collages into full fashion visuals and editorial descriptions.  
 It powers AI outfit-builders, stylist assistants, and fashion-tech experiences.
 
