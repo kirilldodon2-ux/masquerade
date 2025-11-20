@@ -2,32 +2,34 @@
 import express from "express";
 import bodyParser from "body-parser";
 import axios from "axios";
+import FormData from "form-data";
 
 const app = express();
 app.use(bodyParser.json());
 
 const PORT = process.env.PORT || 8080;
-
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
-
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const VERTEX_API_KEY = process.env.VERTEX_API_KEY;
 
-if (!TELEGRAM_BOT_TOKEN) console.error("❌ TELEGRAM_BOT_TOKEN is missing");
-else console.log("TELEGRAM_BOT_TOKEN: ✅ loaded");
+const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 
-if (!OPENAI_API_KEY) console.error("❌ OPENAI_API_KEY is missing");
-else console.log("OPENAI_API_KEY: ✅ loaded");
+if (!TELEGRAM_BOT_TOKEN) {
+  console.error("❌ TELEGRAM_BOT_TOKEN is missing");
+} else {
+  console.log("TELEGRAM_BOT_TOKEN: ✅ loaded");
+}
 
-if (!VERTEX_API_KEY) console.error("❌ VERTEX_API_KEY is missing");
-else console.log("VERTEX_API_KEY: ✅ loaded");
+if (!OPENAI_API_KEY) {
+  console.error("❌ OPENAI_API_KEY is missing");
+}
+if (!VERTEX_API_KEY) {
+  console.error("❌ VERTEX_API_KEY is missing");
+}
 
 console.log("Masquerade booting…");
 
-// -------------------------------------------------------------------
-// Helpers
-// -------------------------------------------------------------------
+// ---------- helpers: Telegram ----------
 
 async function sendTelegramMessage(chatId, text, extra = {}) {
   if (!TELEGRAM_BOT_TOKEN) return;
@@ -47,14 +49,43 @@ async function sendTelegramMessage(chatId, text, extra = {}) {
       console.log("📤 Message sent to chat", chatId);
     }
   } catch (err) {
-    console.error("Failed to call Telegram API:", err?.response?.data || err);
+    console.error("Failed to call Telegram sendMessage:", err?.response?.data || err);
+  }
+}
+
+async function sendTelegramPhoto(chatId, imageBuffer, caption) {
+  if (!TELEGRAM_BOT_TOKEN) return;
+
+  try {
+    const form = new FormData();
+    form.append("chat_id", String(chatId));
+    form.append("caption", caption);
+    form.append("parse_mode", "Markdown");
+    form.append("photo", imageBuffer, {
+      filename: "outfit.jpg",
+      contentType: "image/jpeg",
+    });
+
+    const resp = await axios.post(`${TELEGRAM_API}/sendPhoto`, form, {
+      headers: form.getHeaders(),
+      maxBodyLength: Infinity,
+    });
+
+    if (!resp.data.ok) {
+      console.error("Telegram sendPhoto error:", resp.data);
+    } else {
+      console.log("📤 Photo sent to chat", chatId);
+    }
+  } catch (err) {
+    console.error("Failed to call Telegram sendPhoto:", err?.response?.data || err);
   }
 }
 
 /**
- * Качаем самое большое фото из message.photo:
- * 1) getFile → file_path
- * 2) file_url → buffer
+ * Скачиваем оригинал фото из Telegram:
+ *  - находим самое большое в message.photo
+ *  - получаем file_path через getFile
+ *  - скачиваем байты
  */
 async function downloadTelegramPhoto(message) {
   const photos = message.photo;
@@ -62,9 +93,9 @@ async function downloadTelegramPhoto(message) {
     throw new Error("No photo array in message");
   }
 
-  const largestPhoto = photos[photos.length - 1];
-  const fileId = largestPhoto.file_id;
-  if (!fileId) throw new Error("No file_id in largest photo");
+  const largest = photos[photos.length - 1];
+  const fileId = largest.file_id;
+  if (!fileId) throw new Error("photo.file_id missing");
 
   const fileResp = await axios.get(`${TELEGRAM_API}/getFile`, {
     params: { file_id: fileId },
@@ -73,35 +104,36 @@ async function downloadTelegramPhoto(message) {
   const filePath = fileResp.data?.result?.file_path;
   if (!filePath) {
     console.error("getFile response:", fileResp.data);
-    throw new Error("getFile did not return file_path");
+    throw new Error("Telegram getFile did not return file_path");
   }
 
   const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`;
-  const photoResp = await axios.get(fileUrl, { responseType: "arraybuffer" });
-  const buffer = Buffer.from(photoResp.data);
 
-  console.log("📥 Downloaded photo", { fileId, filePath });
+  const fileBinResp = await axios.get(fileUrl, {
+    responseType: "arraybuffer",
+  });
 
-  return { fileId, filePath, fileUrl, buffer, photoInfo: largestPhoto };
+  const buffer = Buffer.from(fileBinResp.data);
+
+  console.log("📥 Telegram photo downloaded:", { fileId, filePath });
+
+  return { fileId, filePath, buffer };
 }
 
-/**
- * Вызов Nano Banana (Gemini 2.5 Flash Image).
- * Принимает buffer коллажа и бриф, возвращает base64 с сгенерённым аутфитом.
- */
+// ---------- helpers: Nano Banana (Gemini 2.5 Flash Image) ----------
+
 async function generateNanoBananaImage(buffer, briefText = "") {
   if (!VERTEX_API_KEY) {
-    console.warn("VERTEX_API_KEY not set, skipping Nano Banana call");
+    console.warn("VERTEX_API_KEY is missing, skipping Nano Banana");
     return null;
   }
 
   const base64 = buffer.toString("base64");
 
   const brief = (briefText || "").trim();
-  const textPrompt =
-    brief.length > 0
-      ? `You are a fashion virtual try-on engine. Take this collage of items and dress a standing full-body model in these exact clothes and accessories, without changing design, materials or colors. Stylist brief: ${brief}`
-      : `You are a fashion virtual try-on engine. Take this collage of items and dress a standing full-body model in these exact clothes and accessories, without changing design, materials or colors.`;
+  const textPrompt = brief
+    ? `You are a fashion virtual try-on engine. Take this collage of items and dress a standing full-body model in these exact clothes and accessories, without changing design, materials or colors. Stylist brief: ${brief}`
+    : `You are a fashion virtual try-on engine. Take this collage of items and dress a standing full-body model in these exact clothes and accessories, without changing design, materials or colors.`;
 
   const body = {
     contents: [
@@ -122,20 +154,18 @@ async function generateNanoBananaImage(buffer, briefText = "") {
 
   const url =
     "https://aiplatform.googleapis.com/v1/" +
-    "publishers/google/models/gemini-2.5-flash-image:generateContent";
+    "publishers/google/models/gemini-2.5-flash-image:generateContent" +
+    `?key=${VERTEX_API_KEY}`;
 
   const resp = await axios.post(url, body, {
-    params: { key: VERTEX_API_KEY },
     headers: { "Content-Type": "application/json" },
-    timeout: 60000,
+    maxBodyLength: Infinity,
   });
 
-  // рекурсивный поиск inline_data.data
   function findInlineData(node) {
     if (!node || typeof node !== "object") return null;
     if (node.inline_data?.data) return node.inline_data;
     if (node.inlineData?.data) return node.inlineData;
-
     for (const val of Object.values(node)) {
       const found = findInlineData(val);
       if (found) return found;
@@ -145,28 +175,29 @@ async function generateNanoBananaImage(buffer, briefText = "") {
 
   const inline = findInlineData(resp.data);
   if (!inline?.data) {
-    console.error("Nano Banana response has no inline_data:", resp.data);
-    throw new Error("Nano Banana: no inline_data.data found");
+    console.error("Nano Banana response without inline_data:", resp.data);
+    throw new Error("No Base64 image in Nano Banana response");
   }
 
-  console.log("🍌 Nano Banana image generated (base64 length:", inline.data.length, ")");
-  return { b64_image: inline.data };
+  console.log("🟡 Nano Banana image generated");
+  return Buffer.from(inline.data, "base64");
 }
 
-/**
- * Вызов OpenAI Responses для Borealis-описания.
- * На вход: filePath из Telegram и текстовый бриф.
- */
-async function generateBorealisDescription({ filePath, brief }) {
+// ---------- helpers: Borealis description (OpenAI Responses) ----------
+
+async function generateBorealisDescription({ filePath, briefText = "" }) {
   if (!OPENAI_API_KEY) {
-    console.warn("OPENAI_API_KEY not set, skipping Borealis description");
-    return null;
+    console.warn("OPENAI_API_KEY missing, skipping Borealis description");
+    return {
+      title: "Готовый образ",
+      description: "",
+      references: [],
+    };
   }
 
-  let imageUrl = null;
-  if (filePath) {
-    imageUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`;
-  }
+  const imageUrl = filePath
+    ? `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`
+    : null;
 
   const systemPrompt = `
 You are BOREALIS EDITORIAL ENGINE 1.0 — a high-precision fashion narrator combining OpenAI clarity, Margiela restraint, Kojima introspection and archival fashion culture.
@@ -234,10 +265,10 @@ Always return only JSON:
 }
 `.trim();
 
-  const cleanBrief = (brief || "").trim();
+  const brief = (briefText || "").trim();
 
-  const briefBlock = cleanBrief
-    ? `Стилевой бриф от пользователя (используй как контекст, не задавай уточняющих вопросов):\n${cleanBrief}\n`
+  const briefBlock = brief
+    ? `Стилевой бриф от пользователя (используй как контекст, не задавай уточняющих вопросов):\n${brief}\n`
     : `Стилевой бриф отсутствует. Не задавай вопросов и не проси дополнительных данных — аккуратно дострой недостающие детали сам.\n`;
 
   const baseIntro = imageUrl
@@ -262,13 +293,20 @@ ${briefBlock}
         content: [
           { type: "input_text", text: userText },
           ...(imageUrl
-            ? [{ type: "input_image", image_url: imageUrl }]
+            ? [
+                {
+                  type: "input_image",
+                  image_url: imageUrl,
+                },
+              ]
             : []),
         ],
       },
     ],
     temperature: 0.9,
-    text: { format: { type: "text" } },
+    text: {
+      format: { type: "text" },
+    },
   };
 
   const resp = await axios.post("https://api.openai.com/v1/responses", body, {
@@ -276,24 +314,24 @@ ${briefBlock}
       Authorization: `Bearer ${OPENAI_API_KEY}`,
       "Content-Type": "application/json",
     },
-    timeout: 60000,
+    maxBodyLength: Infinity,
   });
 
-  const output = resp.data.output || [];
+  const output = resp.data?.output || [];
   const firstMessage = output[0] || {};
   const contentArr = firstMessage.content || [];
   const textItem = contentArr.find((c) => c.type === "output_text");
   const rawText = (textItem && textItem.text && textItem.text.trim()) || "";
 
   if (!rawText) {
-    console.error("Borealis raw response:", resp.data);
-    throw new Error("Borealis: empty text in OpenAI response");
+    console.error("Borealis empty response:", resp.data);
+    throw new Error("Borealis: empty text in Responses output");
   }
 
   let parsed;
   try {
     parsed = JSON.parse(rawText);
-  } catch (e) {
+  } catch {
     const match = rawText.match(/\{[\s\S]*\}/);
     if (match) {
       parsed = JSON.parse(match[0]);
@@ -312,21 +350,13 @@ ${briefBlock}
     ? parsed.references
     : [];
 
-  console.log("🧊 Borealis description generated:", title);
+  console.log("🟣 Borealis description generated");
 
-  return {
-    title,
-    description,
-    references,
-    image_url: imageUrl || null,
-    raw_json: parsed,
-  };
+  return { title, description, references };
 }
 
-/**
- * Очень простой детектор режима (по тексту + наличию фото).
- * Потом сюда подвесим CV / multi-image.
- */
+// ---------- simple mode detector ----------
+
 function detectMode(message) {
   const hasPhoto = Boolean(message.photo && message.photo.length);
   const text = (message.caption || message.text || "").toLowerCase();
@@ -353,87 +383,63 @@ function detectMode(message) {
   const containsModelOnlyHint = modelOnlyHints.some((h) => text.includes(h));
 
   if (!hasPhoto) return "TEXT_ONLY";
-
   if (hasPhoto && containsModelOnlyHint) return "MODEL_WAITING_ITEMS";
   if (hasPhoto && containsHumanHint) return "TRY_ON";
-
-  return "OUTFIT_ONLY";
+  if (hasPhoto) return "OUTFIT_ONLY";
+  return "UNKNOWN";
 }
 
-// -------------------------------------------------------------------
-// Handlers
-// -------------------------------------------------------------------
-
-function formatBorealisReply({ modeLabel, borealis, caption }) {
-  if (!borealis) {
-    return [
-      `*Mode:* ${modeLabel}.`,
-      "",
-      "Что-то пошло не так при генерации описания.",
-      "Попробуй отправить коллаж ещё раз чуть позже.",
-    ].join("\n");
-  }
-
-  const refs =
-    borealis.references && borealis.references.length
-      ? "_References:_\n" +
-        borealis.references.map((r) => `• ${r}`).join("\n")
-      : "";
-
-  return [
-    `*Mode:* ${modeLabel}.`,
-    "",
-    `*${borealis.title || "Готовый образ"}*`,
-    "",
-    borealis.description || "",
-    "",
-    refs,
-    caption ? `\n_Твой бриф:_ ${caption}` : "",
-  ]
-    .join("\n")
-    .trim();
-}
+// ---------- handlers ----------
 
 async function handleOutfitOnly(message) {
   const chatId = message.chat.id;
   const caption = message.caption || message.text || "";
 
-  try {
-    // 1) скачиваем коллаж
-    const photo = await downloadTelegramPhoto(message);
+  // 1) скачиваем фото
+  const { filePath, buffer } = await downloadTelegramPhoto(message);
 
-    // 2) пробуем сгенерировать try-on (Nano Banana)
-    try {
-      await generateNanoBananaImage(photo.buffer, caption);
-      // позже сюда добавим отправку картинки в Telegram
-    } catch (err) {
-      console.error("Nano Banana error:", err?.response?.data || err);
+  // 2) генерим Nano Banana картинку
+  const nbImageBuffer = await generateNanoBananaImage(buffer, caption).catch(
+    (err) => {
+      console.error("Nano Banana error:", err);
+      return null;
     }
+  );
 
-    // 3) Borealis-описание
-    let borealis = null;
-    try {
-      borealis = await generateBorealisDescription({
-        filePath: photo.filePath,
-        brief: caption,
-      });
-    } catch (err) {
-      console.error("Borealis error:", err?.response?.data || err);
-    }
+  // 3) Borealis описание
+  const borealis = await generateBorealisDescription({
+    filePath,
+    briefText: caption,
+  }).catch((err) => {
+    console.error("Borealis error:", err);
+    return {
+      title: "Готовый образ",
+      description: "",
+      references: [],
+    };
+  });
 
-    const reply = formatBorealisReply({
-      modeLabel: "Outfit / Collage",
-      borealis,
-      caption,
-    });
+  const refsText =
+    borealis.references && borealis.references.length
+      ? "\n\nReferences:\n" +
+        borealis.references.map((r) => `• ${r}`).join("\n")
+      : "";
 
-    await sendTelegramMessage(chatId, reply);
-  } catch (err) {
-    console.error("handleOutfitOnly error:", err?.response?.data || err);
-    await sendTelegramMessage(
-      chatId,
-      "⚠️ Не удалось обработать коллаж, попробуй ещё раз чуть позже."
-    );
+  const captionText = [
+    "*Mode:* Outfit / Collage.",
+    "",
+    borealis.title ? `*${borealis.title}*` : "",
+    "",
+    borealis.description || "",
+    refsText,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  if (nbImageBuffer) {
+    await sendTelegramPhoto(chatId, nbImageBuffer, captionText);
+  } else {
+    await sendTelegramMessage(chatId, captionText);
   }
 }
 
@@ -445,9 +451,9 @@ async function handleTryOn(message) {
     "*Mode:* Try-on (model + items).",
     "",
     "Вижу модель + вещи.",
-    "Следующим шагом подключим полноценный try-on пайплайн (Nano Banana + Borealis).",
+    "Пока try-on в разработке — сейчас обрабатываю только коллажи как Outfit / Collage.",
     "",
-    "Пока что работаю только как Outfit / Collage по картинке вещей.",
+    "Пришли чистый коллаж вещей, и я соберу образ.",
     caption ? `\nТвой бриф: \`${caption}\`` : "",
   ].join("\n");
 
@@ -474,7 +480,7 @@ async function handleTextOnly(message) {
 
   if (text.startsWith("/start")) {
     const reply = [
-      "🧥 *Borealis Masquerade в сети.*",
+      "🧥 *Borealis Masquerade онлайн.*",
       "",
       "Пришли коллаж на белом фоне или несколько фото вещей + короткий бриф (vibe / история).",
       "Я соберу цельный образ и дам редакторское описание.",
@@ -490,7 +496,7 @@ async function handleTextOnly(message) {
       "",
       "1) Пришли коллаж / фото вещей.",
       "2) Добавь пару строк про настроение и контекст.",
-      "3) Получи собранный аутфит и текст.",
+      "3) Получи собранный аутфит, визуал и Borealis-описание.",
     ].join("\n");
 
     await sendTelegramMessage(chatId, reply);
@@ -498,7 +504,7 @@ async function handleTextOnly(message) {
   }
 
   const reply = [
-    "Я жду изображения с вещами или моделью.",
+    "Я жду изображение с вещами или моделью.",
     "",
     "• Отправь коллаж с одеждой.",
     "• Или фото модели + вещи, которые нужно примерить.",
@@ -509,9 +515,7 @@ async function handleTextOnly(message) {
   await sendTelegramMessage(chatId, reply);
 }
 
-// -------------------------------------------------------------------
-// HTTP endpoints
-// -------------------------------------------------------------------
+// ---------- HTTP endpoints ----------
 
 app.get("/", (req, res) => {
   res.send("Masquerade Engine is running.");
