@@ -131,7 +131,7 @@ Built by Kirill Dodon × Borealis Studio.
 
 ---
 
-## 📬 Contact us
+## Contact us
 
 
 <p align="center">
