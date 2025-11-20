@@ -141,15 +141,44 @@ async function generateNanoBananaImage(buffer, briefText = "", options = {}) {
 
   const baseInstruction = inspirationMode
     ? `You are a fashion concept engine.
-Use this image as visual inspiration (colors, shapes, textures, composition, mood)
-to design a new full-body outfit on a standing model.
-Do NOT literally redraw objects from the image; translate them into clothing, accessories and silhouette.`
+Use this image as pure visual inspiration: colors, shapes, textures, composition, mood.
+Design a NEW outfit on a single standing human model based on this mood.
+
+The model:
+- full-body, front-facing or 3/4
+- calm, neutral pose
+- no dynamic action, no extreme angles.
+
+Background and light:
+- unless the stylist brief explicitly requests a specific place or environment,
+  always render in a clean photo studio: plain white cyclorama background,
+  soft even lighting, no props, no scenery, no extra characters.
+
+Clothing:
+- translate motifs from the image into clothing and accessories,
+  but do NOT literally redraw non-fashion objects from the picture.`
     : `You are a fashion virtual try-on engine.
-Take this collage of clothing items and dress a standing full-body model
-in these exact clothes and accessories, without changing design, materials or colors.`;
+Take this collage of CLOTHING items and dress a single standing human model
+in these exact clothes and accessories.
+
+Clothing:
+- do NOT change design, cut, prints, logos or colors of the garments
+- do NOT add random extra items unless the stylist brief clearly asks for it.
+
+Model:
+- the person must match the stylist brief description (gender, age, hair, beard,
+  proportions, vibe) as closely as possible
+- do not replace them with another random model.
+
+Framing and background:
+- show the model full-body, front-facing or 3/4, in a calm neutral pose
+- do not crop the head or feet
+- unless the stylist brief explicitly asks for another location,
+  always render on a plain white studio cyclorama background with soft even light
+  (no streets, no interiors, no props, no extra people).`;
 
   const textPrompt = brief
-    ? `${baseInstruction}\nStylist brief: ${brief}`
+    ? `${baseInstruction}\n\nStylist brief: ${brief}`
     : baseInstruction;
 
   const body = {
@@ -199,7 +228,6 @@ in these exact clothes and accessories, without changing design, materials or co
   console.log("🟡 Nano Banana image generated");
   return Buffer.from(inline.data, "base64");
 }
-
 // ---------- helpers: Borealis description (OpenAI Responses) ----------
 
 async function generateBorealisDescription({ filePath, briefText = "" }) {
@@ -393,48 +421,28 @@ ${briefBlock}
 
 // ---------- formatting helper for Telegram ----------
 
-function formatBorealisMessage(
-  modeLabel,
-  borealis,
-  originalBrief = "",
-  options = {}
-) {
-  const { inspirationNote } = options;
-
+function formatBorealisMessage(modeLabel, borealis) {
   const title = (borealis.title || "Готовый образ").trim();
   const description = (borealis.description || "").trim();
   const refs = Array.isArray(borealis.references)
     ? borealis.references
     : [];
 
-  const lines = [];
+  const refsBlock =
+    refs.length > 0
+      ? ["", "_References:_", ...refs.map((r) => `• ${r}`)].join("\n")
+      : "";
 
-  lines.push(`> Mode: ${modeLabel}`);
-
-  if (inspirationNote) {
-    lines.push(inspirationNote);
-  }
-
-  lines.push("");
-  lines.push(`*${title}*`);
-  lines.push("");
-  lines.push(description);
-
-  if (refs.length > 0) {
-    lines.push("");
-    lines.push("_References:_");
-    for (const r of refs) {
-      lines.push(`• ${r}`);
-    }
-  }
-
-  if (originalBrief) {
-    lines.push("");
-    lines.push("_Brief:_");
-    lines.push(originalBrief);
-  }
-
-  return lines.filter(Boolean).join("\n");
+  return [
+    `> Mode: ${modeLabel}`,
+    "",
+    `*${title}*`,
+    "",
+    description,
+    refsBlock,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 // ---------- simple mode detector ----------
