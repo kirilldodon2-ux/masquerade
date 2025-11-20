@@ -29,7 +29,7 @@ Masquerade = AI × Fashion × Design Philosophy.
 
 ---
 
-# 🌫 Brand Manifesto
+# Brand Manifesto
 
 ### **EN**
 Masquerade is a place where fashion stops being an image.  
@@ -120,7 +120,7 @@ Values stored via Secret Manager → auto-mounted into Cloud Run.
 	•	Paid plans with Stripe Billing
 	•	Native iOS + iPadOS app for stylist workspaces
 
-🧊 License
+ License
 
 No license.
 Masquerade is a proprietary engine designed for private and commercial use.
@@ -131,7 +131,7 @@ Built by Kirill Dodon × Borealis Studio.
 
 ---
 
-## 📬 Contact
+## 📬 Contact us
 
 
 <p align="center">
