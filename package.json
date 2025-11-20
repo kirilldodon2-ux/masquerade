@@ -1,13 +1,13 @@
 {
   "name": "masquerade",
   "version": "0.1.0",
-  "description": "Borealis Masquerade — Fashion Intelligence Engine backend.",
-  "type": "module",
+  "description": "Borealis Masquerade — Fashion Intelligence Engine",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js"
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "axios": "^1.7.0",
+    "express": "^4.19.0"
   }
 }
