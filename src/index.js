@@ -1,47 +1,81 @@
-const express = require("express");
-const axios = require("axios");
+// src/index.js
+import express from "express";
 
 const app = express();
 app.use(express.json());
 
-const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_API = TELEGRAM_TOKEN
-  ? `https://api.telegram.org/bot${TELEGRAM_TOKEN}`
-  : null;
+// ─── ENV ────────────────────────────────────────────
 
-// health-check
+const PORT = process.env.PORT || 8080;
+
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const VERTEX_API_KEY = process.env.VERTEX_API_KEY;
+const PROJECT_ID = process.env.PROJECT_ID;
+
+// Проверяем подключение секретов (безопасно)
+console.log("🔥 BOOT: Masquerade Engine starting…");
+console.log("🔐 Secret check:", {
+  TELEGRAM_BOT_TOKEN: !!TELEGRAM_BOT_TOKEN,
+  OPENAI_API_KEY: !!OPENAI_API_KEY,
+  VERTEX_API_KEY: !!VERTEX_API_KEY,
+  PROJECT_ID: PROJECT_ID || null,
+});
+
+// ─── HEALTHCHECK ─────────────────────────────────────
+
 app.get("/", (req, res) => {
-  res.send("Masquerade Engine is online.");
+  res.status(200).send("Masquerade Engine OK");
 });
 
-app.get("/healthz", (req, res) => {
-  res.status(200).send("ok");
-});
+// ─── TELEGRAM WEBHOOK ────────────────────────────────
 
-// Telegram webhook
 app.post("/webhook", async (req, res) => {
-  // сразу отвечаем Telegram
-  res.status(200).send("OK");
+  console.log("📨 Incoming update:", JSON.stringify(req.body, null, 2));
+
+  // Telegram требует instant-ответ
+  res.status(200).json({ ok: true });
+
+  if (!TELEGRAM_BOT_TOKEN) {
+    console.warn("⚠ TELEGRAM_BOT_TOKEN missing — cannot send reply");
+    return;
+  }
 
   try {
-    const update = req.body;
-    console.log("TG update:", JSON.stringify(update));
+    const message = req.body.message || req.body.edited_message;
+    if (!message || !message.chat || !message.chat.id) {
+      console.warn("⚠ No chat.id — skip");
+      return;
+    }
 
-    const chatId = update?.message?.chat?.id;
-    if (!chatId || !TELEGRAM_API) return;
+    const chatId = message.chat.id;
 
-    await axios.post(`${TELEGRAM_API}/sendMessage`, {
-      chat_id: chatId,
-      text:
-        "Masquerade online.\n" +
-        "Отправь коллаж вещей + опционально текст — позже здесь появится Nano Banana + Borealis."
-    });
+    const replyText =
+      "Masquerade Engine online ⚡\n" +
+      "Webhook connected. Secrets loaded ✓\n" +
+      "Send me an outfit collage anytime.";
+
+    const tgResp = await fetch(
+      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: replyText,
+        }),
+      }
+    );
+
+    const data = await tgResp.json();
+    console.log("📤 Telegram answer:", data);
   } catch (err) {
-    console.error("Webhook error:", err.message);
+    console.error("❌ Webhook processing error:", err);
   }
 });
 
-const PORT = process.env.PORT || 8080;
+// ─── START SERVER ─────────────────────────────────────
+
 app.listen(PORT, () => {
-  console.log(`Masquerade listening on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
