@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kirilldodon2-ux/masquerade/.assets/readme%20pic.jpg" width="140" />
+  <img src="https://raw.githubusercontent.com/kirilldodon2-ux/masquerade/main/.assets/readme%20pic.jpg" width="160" />
 </p>
 
 <h1 align="center">Masquerade Engine</h1>
@@ -135,7 +135,7 @@ Built by Kirill Dodon × Borealis Studio.
 
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kirilldodon2-ux/masquerade/main/bot_pic2.jpeg" width="120" />
+  <img src="https://raw.githubusercontent.com/kirilldodon2-ux/masquerade/main/.assets/bot_pic2.jpeg" width="140" />
   <br/>
   <strong>hello@dodon.one</strong>
 </p>
