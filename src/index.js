@@ -8,11 +8,9 @@ app.use(bodyParser.json());
 
 const PORT = process.env.PORT || 8080;
 
-// 1) Берём токен и TRIM-им (обрежет пробелы/перевод строки)
+// аккуратно читаем токен и чистим пробелы / \n
 const RAW_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 const TELEGRAM_BOT_TOKEN = RAW_TOKEN.trim();
-
-console.log("Masquerade booting…");
 
 if (!TELEGRAM_BOT_TOKEN) {
   console.error("❌ TELEGRAM_BOT_TOKEN is missing or empty");
@@ -29,12 +27,12 @@ if (!TELEGRAM_BOT_TOKEN) {
   );
 }
 
-// health-check
+console.log("Masquerade booting…");
+
 app.get("/", (req, res) => {
   res.send("Masquerade Engine is running.");
 });
 
-// главный webhook
 app.post("/webhook", async (req, res) => {
   try {
     const update = req.body;
@@ -48,7 +46,6 @@ app.post("/webhook", async (req, res) => {
 
     const chatId = message.chat.id;
     const text = message.text || message.caption || "";
-    console.log("💬 From chat:", chatId, "text:", text);
 
     let replyText;
 
@@ -71,26 +68,22 @@ app.post("/webhook", async (req, res) => {
 
     if (chatId && TELEGRAM_BOT_TOKEN) {
       const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-      console.log("📡 Telegram URL:", url.replace(TELEGRAM_BOT_TOKEN, "<TOKEN>"));
+      console.log("➡️ Telegram URL:", url);
 
-      const payload = {
+      const tgRes = await axios.post(url, {
         chat_id: chatId,
         text: replyText,
-      };
-      console.log("📦 Telegram payload:", JSON.stringify(payload));
+      });
 
-      const tgResp = await axios.post(url, payload);
-      console.log("✅ Telegram response:", JSON.stringify(tgResp.data));
+      console.log("📤 Telegram response:", tgRes.data);
+      console.log("📤 Sent reply to chat", chatId);
     } else {
-      console.log("⚠️ No chatId or TELEGRAM_BOT_TOKEN missing");
+      console.error("❌ No chatId or TELEGRAM_BOT_TOKEN missing");
     }
 
     res.sendStatus(200);
   } catch (err) {
-    console.error(
-      "❌ Error in /webhook:",
-      err?.response?.data || err.message || err
-    );
+    console.error("❌ Error in /webhook:", err?.response?.data || err);
     res.sendStatus(200);
   }
 });
