@@ -1,22 +1,21 @@
 // src/index.js
-import express from "express";
-import axios from "axios";
+const express = require("express");
+const axios = require("axios");
 
 const app = express();
 
-// JSON body парсер (замена body-parser)
+// Telegram шлёт JSON → этого достаточно
 app.use(express.json());
 
 const PORT = process.env.PORT || 8080;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
+console.log("Masquerade booting…");
 if (!TELEGRAM_BOT_TOKEN) {
   console.error("❌ TELEGRAM_BOT_TOKEN is missing");
 } else {
   console.log("TELEGRAM_BOT_TOKEN: ✅ loaded");
 }
-
-console.log("Masquerade booting…");
 
 // health-check / браузер
 app.get("/", (req, res) => {
@@ -38,7 +37,6 @@ app.post("/webhook", async (req, res) => {
     const chatId = message.chat.id;
     const text = message.text || message.caption || "";
 
-    // Простейший router
     let replyText;
 
     if (text.startsWith("/start")) {
@@ -67,6 +65,8 @@ app.post("/webhook", async (req, res) => {
         }
       );
       console.log("📤 Sent reply to chat", chatId);
+    } else {
+      console.error("❌ No chatId or TELEGRAM_BOT_TOKEN missing");
     }
 
     res.sendStatus(200);
