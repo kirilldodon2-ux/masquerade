@@ -1,150 +1,81 @@
+// src/index.js
 import express from "express";
+import bodyParser from "body-parser";
+import axios from "axios";
 
 const app = express();
+app.use(bodyParser.json());
+
 const PORT = process.env.PORT || 8080;
-
-// ── Env & config ──────────────────────────────────────────────
-
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const VERTEX_API_KEY = process.env.VERTEX_API_KEY;
-const PROJECT_ID = process.env.PROJECT_ID || "PROJECT_ID";
 
 if (!TELEGRAM_BOT_TOKEN) {
   console.error("❌ TELEGRAM_BOT_TOKEN is missing");
-}
-if (!OPENAI_API_KEY) {
-  console.warn("⚠️ OPENAI_API_KEY is missing (Borealis offline)");
-}
-if (!VERTEX_API_KEY) {
-  console.warn("⚠️ VERTEX_API_KEY is missing (Nano Banana offline)");
+} else {
+  console.log("TELEGRAM_BOT_TOKEN: ✅ loaded");
 }
 
-const TELEGRAM_API = TELEGRAM_BOT_TOKEN
-  ? `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`
-  : null;
+console.log("Masquerade booting…");
 
-// ── Middleware ────────────────────────────────────────────────
-
-app.use(
-  express.json({
-    limit: "20mb",
-  })
-);
-
-// ── Healthcheck ──────────────────────────────────────────────
-
+// health-check / браузер
 app.get("/", (req, res) => {
-  res.send("Masquerade Engine is alive 🧥");
+  res.send("Masquerade Engine is running.");
 });
 
-// ── Telegram webhook ─────────────────────────────────────────
-
+// главный webhook
 app.post("/webhook", async (req, res) => {
-  const update = req.body;
-  console.log("Incoming update:", JSON.stringify(update, null, 2));
-
   try {
-    const msg = update.message || update.edited_message;
-    if (!msg) {
-      // Ничего умного не пришло — просто подтверждаем 200
+    const update = req.body;
+    console.log("📩 Incoming update:", JSON.stringify(update, null, 2));
+
+    const message = update.message || update.edited_message;
+    if (!message) {
+      console.log("⚪ No message field in update");
       return res.sendStatus(200);
     }
 
-    const chatId = msg.chat.id;
-    const text = msg.text || msg.caption || "";
-    const hasPhoto = Boolean(msg.photo && msg.photo.length > 0);
+    const chatId = message.chat.id;
+    const text = message.text || message.caption || "";
 
-    // ── Команды ────────────────────────────────────────
+    // Простейший router
+    let replyText;
 
     if (text.startsWith("/start")) {
-      await sendTelegramMessage(
-        chatId,
-        "Masquerade Engine online.\n\n" +
-          "Отправь:\n" +
-          "1️⃣ Коллаж / вещи — соберу образ.\n" +
-          "2️⃣ Модель + вещи — примерю образ на модель.\n" +
-          "3️⃣ Только модель — предложу, что к ней собрать.\n\n" +
-          "Команда /help — краткая шпаргалка."
-      );
-      return res.sendStatus(200);
+      replyText =
+        "Masquerade Engine is alive.\n\n" +
+        "Send me a collage of items (or multiple clothing photos) and an optional brief.\n" +
+        "I’ll build an outfit and editorial description.";
+    } else if (text.startsWith("/help")) {
+      replyText =
+        "Masquerade — fashion intelligence engine.\n\n" +
+        "1) Send a collage with items.\n" +
+        "2) Optionally add a text brief (vibe, context, body type).\n" +
+        "3) Get an AI-built outfit + Borealis description.";
+    } else {
+      replyText =
+        "Got your message.\n\n" +
+        "Soon I’ll turn this into a full outfit pipeline. For now, send /start or a collage.";
     }
 
-    if (text.startsWith("/help")) {
-      await sendTelegramMessage(
-        chatId,
-        "Masquerade Input Modes:\n\n" +
-          "🧩 OUTIFT ONLY — просто вещи или коллаж.\n" +
-          "🧍 TRY-ON — модель + вещи.\n" +
-          "👤 MODEL ONLY — только модель, бот ждёт вещи.\n\n" +
-          "Сейчас идёт настройка движка, ответы могут быть базовыми."
+    if (chatId && TELEGRAM_BOT_TOKEN) {
+      await axios.post(
+        `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+        {
+          chat_id: chatId,
+          text: replyText,
+        }
       );
-      return res.sendStatus(200);
+      console.log("📤 Sent reply to chat", chatId);
     }
 
-    // ── Базовый ответ (fallback) ──────────────────────
-
-    if (hasPhoto) {
-      await sendTelegramMessage(
-        chatId,
-        "Принял изображения. Движок Masquerade онлайн 🧥\n" +
-          "Сейчас я ещё настраиваюсь, скоро начну собирать полноценные образы."
-      );
-    } else if (text) {
-      await sendTelegramMessage(
-        chatId,
-        `Я получил: «${text}».\n\nMasquerade уже запущен, я скоро начну собирать образы по фото и коллажам.`
-      );
-    }
-
-    return res.sendStatus(200);
+    res.sendStatus(200);
   } catch (err) {
-    console.error("Error handling Telegram webhook:", err);
-    // В любом случае отвечаем 200, чтобы Telegram не ретраил вечно
-    return res.sendStatus(200);
+    console.error("❌ Error in /webhook:", err?.response?.data || err);
+    // важно всё равно ответить 200, чтобы Telegram не зацикливал ретраи
+    res.sendStatus(200);
   }
 });
 
-// ── Helpers ──────────────────────────────────────────────────
-
-async function sendTelegramMessage(chatId, text, extra = {}) {
-  if (!TELEGRAM_API) {
-    console.error("❌ TELEGRAM_API is not configured");
-    return;
-  }
-
-  const payload = {
-    chat_id: chatId,
-    text,
-    parse_mode: "Markdown",
-    ...extra,
-  };
-
-  try {
-    const resp = await fetch(`${TELEGRAM_API}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await resp.json();
-
-    if (!data.ok) {
-      console.error("Telegram sendMessage error:", data);
-    } else {
-      console.log("Message sent to chat", chatId);
-    }
-  } catch (err) {
-    console.error("Failed to call Telegram API:", err);
-  }
-}
-
-// ── Start server (for local dev / Cloud Run) ─────────────────
-
 app.listen(PORT, () => {
-  console.log("Masquerade listening on port", PORT);
-  console.log("PROJECT_ID:", PROJECT_ID);
-  console.log("TELEGRAM_BOT_TOKEN:", TELEGRAM_BOT_TOKEN ? "✅ loaded" : "❌ missing");
-  console.log("OPENAI_API_KEY:", OPENAI_API_KEY ? "✅ loaded" : "❌ missing");
-  console.log("VERTEX_API_KEY:", VERTEX_API_KEY ? "✅ loaded" : "❌ missing");
+  console.log(`Masquerade listening on port ${PORT}`);
 });
