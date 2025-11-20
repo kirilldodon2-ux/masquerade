@@ -1,55 +1,47 @@
-import express from "express";
+const express = require("express");
+const axios = require("axios");
 
 const app = express();
 app.use(express.json());
 
-// Порт для Cloud Run
-const PORT = process.env.PORT || 8080;
-
-// Токен бота берём из переменной окружения
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_API_BASE = TELEGRAM_BOT_TOKEN
-  ? `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_API = TELEGRAM_TOKEN
+  ? `https://api.telegram.org/bot${TELEGRAM_TOKEN}`
   : null;
 
 // health-check
 app.get("/", (req, res) => {
-  res.send("Masquerade Engine is alive. 🌫");
+  res.send("Masquerade Engine is online.");
 });
 
-// основной вебхук от Telegram
+app.get("/healthz", (req, res) => {
+  res.status(200).send("ok");
+});
+
+// Telegram webhook
 app.post("/webhook", async (req, res) => {
+  // сразу отвечаем Telegram
+  res.status(200).send("OK");
+
   try {
     const update = req.body;
+    console.log("TG update:", JSON.stringify(update));
 
     const chatId = update?.message?.chat?.id;
-    const text = update?.message?.text || "";
+    if (!chatId || !TELEGRAM_API) return;
 
-    // Пока просто тестовый ответ — потом сюда воткнём Nano Banana + Borealis
-    if (chatId && TELEGRAM_API_BASE) {
-      const replyText =
-        "Masquerade Engine online.\n" +
-        "Отправь коллаж или фото аутфита — дальше будет магия. (test build)";
-
-      // Используем встроенный fetch в Node 18+/22
-      await fetch(`${TELEGRAM_API_BASE}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: replyText,
-        }),
-      });
-    }
-
-    // Важно: всегда отвечаем 200, иначе Telegram будет ретраить
-    res.sendStatus(200);
+    await axios.post(`${TELEGRAM_API}/sendMessage`, {
+      chat_id: chatId,
+      text:
+        "Masquerade online.\n" +
+        "Отправь коллаж вещей + опционально текст — позже здесь появится Nano Banana + Borealis."
+    });
   } catch (err) {
-    console.error("Webhook error:", err);
-    res.sendStatus(500);
+    console.error("Webhook error:", err.message);
   }
 });
 
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log(`Masquerade Engine listening on port ${PORT}`);
+  console.log(`Masquerade listening on port ${PORT}`);
 });
