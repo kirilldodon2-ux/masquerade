@@ -3,18 +3,22 @@ import express from "express";
 import axios from "axios";
 
 const app = express();
-
-// ВАЖНО: парсим JSON от Telegram
 app.use(express.json());
 
+// ВАЖНО: сразу трим токен, чтобы убрать \n, пробелы и т.п.
+const RAW_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
+const TELEGRAM_BOT_TOKEN = RAW_TOKEN.trim();
+
 const PORT = process.env.PORT || 8080;
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
 console.log("Masquerade booting…");
 if (!TELEGRAM_BOT_TOKEN) {
-  console.error("❌ TELEGRAM_BOT_TOKEN is missing");
+  console.error("❌ TELEGRAM_BOT_TOKEN is missing or empty");
 } else {
-  console.log("TELEGRAM_BOT_TOKEN: ✅ loaded");
+  console.log(
+    "TELEGRAM_BOT_TOKEN: ✅ loaded, length =",
+    TELEGRAM_BOT_TOKEN.length
+  );
 }
 
 // health-check
@@ -64,7 +68,9 @@ app.post("/webhook", async (req, res) => {
       const tgUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
       const payload = { chat_id: chatId, text: replyText };
 
-      console.log("📤 Sending reply:", JSON.stringify(payload));
+      console.log("📤 Sending reply to Telegram…");
+      console.log("   chat_id:", chatId);
+      console.log("   URL (masked):", `https://api.telegram.org/bot<token>/sendMessage`);
 
       try {
         const tgRes = await axios.post(tgUrl, payload);
@@ -79,7 +85,6 @@ app.post("/webhook", async (req, res) => {
       console.error("❌ No chatId or TELEGRAM_BOT_TOKEN missing in handler");
     }
 
-    // Всегда отвечаем 200, чтобы Telegram не спамил ретраями
     return res.status(200).send("ok");
   } catch (err) {
     console.error("❌ Error in /webhook handler:", err);
