@@ -9,17 +9,17 @@ app.use(bodyParser.json());
 const PORT = process.env.PORT || 8080;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
+const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
+
 if (!TELEGRAM_BOT_TOKEN) {
   console.error("❌ TELEGRAM_BOT_TOKEN is missing");
 } else {
   console.log("TELEGRAM_BOT_TOKEN: ✅ loaded");
 }
 
-const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
+console.log("Masquerade booting…");
 
-// ───────────────────────────────────────────────
-// Helpers
-// ───────────────────────────────────────────────
+// ---------- helpers ----------
 
 async function sendTelegramMessage(chatId, text, extra = {}) {
   if (!TELEGRAM_BOT_TOKEN) return;
@@ -39,51 +39,166 @@ async function sendTelegramMessage(chatId, text, extra = {}) {
       console.log("📤 Message sent to chat", chatId);
     }
   } catch (err) {
-    console.error("❌ Failed to call sendMessage:", err.response?.data || err);
+    console.error("Failed to call Telegram API:", err?.response?.data || err);
   }
 }
 
-// Определяем режим работы по входящему сообщению
+/**
+ * Очень простой детектор режима.
+ * Потом сюда добавим real CV / Nano Banana сигналы.
+ */
 function detectMode(message) {
-  const hasPhoto =
-    Array.isArray(message.photo) && message.photo.length > 0 ||
-    (message.document && message.document.mime_type?.startsWith("image/"));
+  const hasPhoto = Boolean(message.photo && message.photo.length);
+  const text = (message.caption || message.text || "").toLowerCase();
 
-  const text = message.text || message.caption || "";
-  const normalized = text.toLowerCase();
+  const humanHints = [
+    "на мне",
+    "на себе",
+    "на модели",
+    "model",
+    "модель",
+    "try-on",
+    "примерка",
+    "примерить",
+  ];
 
-  // очень грубые эвристики для первого шага
-  const mentionsModel =
-    normalized.includes("model") ||
-    normalized.includes("модель") ||
-    normalized.includes("#tryon") ||
-    normalized.includes("на мне");
+  const modelOnlyHints = [
+    "просто модель",
+    "только модель",
+    "just model",
+    "face only",
+  ];
 
-  if (hasPhoto && mentionsModel) {
-    return "TRY_ON"; // model + items (по тексту понимаем, что есть модель)
+  const containsHumanHint = humanHints.some((h) => text.includes(h));
+  const containsModelOnlyHint = modelOnlyHints.some((h) => text.includes(h));
+
+  if (!hasPhoto) {
+    return "TEXT_ONLY";
   }
 
-  if (hasPhoto && !mentionsModel) {
-    return "OUTFIT_ONLY"; // считаем, что это просто вещи / коллаж
+  // модель без вещей (по тексту)
+  if (hasPhoto && containsModelOnlyHint) {
+    return "MODEL_WAITING_ITEMS";
   }
 
-  if (!hasPhoto && normalized.length > 0) {
-    return "TEXT_ONLY"; // описание без картинок, пригодится позже
+  // Try-on: пользователь прямо намекает, что это модель
+  if (hasPhoto && containsHumanHint) {
+    return "TRY_ON";
+  }
+
+  // по умолчанию — просто коллаж / вещи
+  if (hasPhoto) {
+    return "OUTFIT_ONLY";
   }
 
   return "UNKNOWN";
 }
 
-// ───────────────────────────────────────────────
-// HTTP endpoints
-// ───────────────────────────────────────────────
+// ---------- stub-пайплайны (потом заменим на реальный AI) ----------
 
-// Health-check / браузер
+async function handleOutfitOnly(message) {
+  const chatId = message.chat.id;
+  const caption = message.caption || message.text || "";
+
+  const reply = [
+    "*Mode:* Outfit / Collage.",
+    "",
+    "Я вижу изображения одежды.",
+    "В следующих итерациях я буду:",
+    "1) вытаскивать из коллажа отдельные вещи,",
+    "2) собирать цельный образ,",
+    "3) генерировать редакторское описание.",
+    "",
+    "_Пока это заглушка — скелет движка уже на месте ✅_",
+    caption ? `\nТвой бриф: \`${caption}\`` : "",
+  ].join("\n");
+
+  await sendTelegramMessage(chatId, reply);
+}
+
+async function handleTryOn(message) {
+  const chatId = message.chat.id;
+  const caption = message.caption || message.text || "";
+
+  const reply = [
+    "*Mode:* Try-on (model + items).",
+    "",
+    "Вижу модель + вещи.",
+    "План пайплайна:",
+    "1) вырезать / зафиксировать модель,",
+    "2) наложить выбранный аутфит,",
+    "3) вернуть try-on визуал + описание образа.",
+    "",
+    "_Сейчас это описательная заглушка — визуал и Borealis текст подключим в следующих шагах._",
+    caption ? `\nТвой бриф: \`${caption}\`` : "",
+  ].join("\n");
+
+  await sendTelegramMessage(chatId, reply);
+}
+
+async function handleModelWaitingItems(message) {
+  const chatId = message.chat.id;
+
+  const reply = [
+    "*Mode:* Model only.",
+    "",
+    "Я принял модель.",
+    "Теперь кинь 3–8 вещей или коллаж, которые хочешь примерить на неё.",
+    "Можно также просто описать настроение образа (vibe) — я соберу референс.",
+  ].join("\n");
+
+  await sendTelegramMessage(chatId, reply);
+}
+
+async function handleTextOnly(message) {
+  const chatId = message.chat.id;
+  const text = message.text || "";
+
+  if (text.startsWith("/start")) {
+    const reply = [
+      "🧥 *Borealis Masquerade в сети.*",
+      "",
+      "Пришли коллаж на белом фоне или несколько фото вещей + короткий бриф (vibe / история).",
+      "Я соберу цельный образ и дам редакторское описание.",
+    ].join("\n");
+
+    await sendTelegramMessage(chatId, reply);
+    return;
+  }
+
+  if (text.startsWith("/help")) {
+    const reply = [
+      "Masquerade — fashion-intelligence engine.",
+      "",
+      "1) Пришли коллаж / фото вещей.",
+      "2) Добавь пару строк про настроение и контекст.",
+      "3) Получи собранный аутфит и текст.",
+    ].join("\n");
+
+    await sendTelegramMessage(chatId, reply);
+    return;
+  }
+
+  const reply = [
+    "Я жду изображения с вещами или моделью.",
+    "",
+    "• Отправь коллаж с одеждой.",
+    "• Или фото модели + вещи, которые нужно примерить.",
+    "",
+    "Команды: /start, /help",
+  ].join("\n");
+
+  await sendTelegramMessage(chatId, reply);
+}
+
+// ---------- HTTP endpoints ----------
+
+// health check / браузер
 app.get("/", (req, res) => {
   res.send("Masquerade Engine is running.");
 });
 
-// Главный Telegram webhook
+// основной Telegram webhook
 app.post("/webhook", async (req, res) => {
   try {
     const update = req.body;
@@ -91,147 +206,35 @@ app.post("/webhook", async (req, res) => {
 
     const message = update.message || update.edited_message;
     if (!message) {
-      console.log("⚪ No message in update");
+      console.log("⚪ No message field in update");
       return res.sendStatus(200);
     }
 
-    const chatId = message.chat.id;
-    const text = message.text || message.caption || "";
-
-    // ── Команды
-    if (text.startsWith("/start")) {
-      await sendTelegramMessage(
-        chatId,
-        [
-          "*Masquerade Engine is alive.*",
-          "",
-          "Send me a collage of items (or multiple clothing photos) and an optional brief.",
-          "I’ll build an outfit and editorial description.",
-        ].join("\n")
-      );
-      return res.sendStatus(200);
-    }
-
-    if (text.startsWith("/help")) {
-      await sendTelegramMessage(
-        chatId,
-        [
-          "*Masquerade — Fashion Intelligence Engine*",
-          "",
-          "• Mode 1: *Outfit / Collage* — send 1 collage or 2–12 clothing photos.",
-          "• Mode 2: *Try-on* — send photo of a model + items, add text with word `model` or `try-on`.",
-          "• Mode 3: *Model only* — send a portrait or full-body photo, I’ll ask for items.",
-        ].join("\n")
-      );
-      return res.sendStatus(200);
-    }
-
-    // ── Авто-режим
     const mode = detectMode(message);
-    console.log("🧠 Detected mode:", mode);
+    console.log("🔎 Detected mode:", mode);
 
     switch (mode) {
       case "OUTFIT_ONLY":
-        await handleOutfitOnly(chatId, message);
+        await handleOutfitOnly(message);
         break;
-
       case "TRY_ON":
-        await handleTryOn(chatId, message);
+        await handleTryOn(message);
         break;
-
       case "MODEL_WAITING_ITEMS":
-        // пока не используем, но оставляю для будущего Vision-анализатора
-        await handleModelOnly(chatId, message);
+        await handleModelWaitingItems(message);
         break;
-
       case "TEXT_ONLY":
-        await sendTelegramMessage(
-          chatId,
-          "Got your brief. Now send a collage or clothing photos — I’ll build an outfit around this vibe."
-        );
-        break;
-
       default:
-        await sendTelegramMessage(
-          chatId,
-          "Got your message.\n\nSend me a collage with items, or a model + items, and I’ll start building the look."
-        );
+        await handleTextOnly(message);
+        break;
     }
 
     res.sendStatus(200);
   } catch (err) {
-    console.error("❌ Error in /webhook:", err.response?.data || err);
-    // Telegram всегда должен получать 200, даже если внутри ошибка
-    res.sendStatus(200);
+    console.error("❌ Error in /webhook:", err?.response?.data || err);
+    res.sendStatus(200); // чтобы Telegram не спамил ретраями
   }
 });
-
-// ───────────────────────────────────────────────
-// Mode handlers (пока без Vertex/OpenAI, только структура)
-// ───────────────────────────────────────────────
-
-async function handleOutfitOnly(chatId, message) {
-  const caption = message.caption || message.text || "";
-
-  // TODO: тут будет:
-  // 1) скачать фотки вещей
-  // 2) отправить их в Nano Banana
-  // 3) получить итоговый outfit-visual
-  // 4) прогнать через Borealis для текстового описания
-
-  console.log("🧵 [OUTFIT_ONLY] caption:", caption);
-
-  await sendTelegramMessage(
-    chatId,
-    [
-      "Mode: *Outfit / Collage*.",
-      "",
-      "I see clothing images. In the next iteration I’ll:",
-      "1) parse items from the collage,",
-      "2) build a consistent outfit,",
-      "3) generate an editorial-grade description.",
-      "",
-      "For now this is a stub response — engine skeleton is in place ✅",
-    ].join("\n")
-  );
-}
-
-async function handleTryOn(chatId, message) {
-  const caption = message.caption || message.text || "";
-
-  // TODO:
-  // 1) отделить фото модели от фото вещей (Vision или простые правила)
-  // 2) передать model_image + items в Nano Banana (try-on)
-  // 3) описать результат через Borealis
-
-  console.log("🧵 [TRY_ON] caption:", caption);
-
-  await sendTelegramMessage(
-    chatId,
-    [
-      "Mode: *Try-on (Model + Items)*.",
-      "",
-      "I’ll soon be able to place your items on the provided model.",
-      "Engine skeleton is ready — next step is wiring Nano Banana + Borealis.",
-    ].join("\n")
-  );
-}
-
-async function handleModelOnly(chatId, message) {
-  console.log("🧵 [MODEL_ONLY]");
-
-  await sendTelegramMessage(
-    chatId,
-    [
-      "Got your model photo ✅",
-      "",
-      "Now send 3–8 items or a collage you want to try on.",
-      "Optionally describe the vibe (city, party, runway, character etc.).",
-    ].join("\n")
-  );
-}
-
-// ───────────────────────────────────────────────
 
 app.listen(PORT, () => {
   console.log(`Masquerade listening on port ${PORT}`);
