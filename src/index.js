@@ -282,22 +282,29 @@ RULES FOR DESCRIPTION:
 — если фон важен, используй его как мягкий фон настроения, а не как главный сюжет
 — одежду не выдумывай, детали не меняй, но трактуй их эмоционально
 
-RULES FOR REFERENCES (ВСЕГДА РОВНО 5 ШТУК):
-Массив "references" ДОЛЖЕН содержать ровно 5 строк.
+RULES FOR REFERENCES (ВСЕГДА РОВНО 6 ШТУК):
+Массив "references" ДОЛЖЕН содержать ровно 6 строк.
 
-3–4 строки — МОДА:
+3 строки — МОДА:
   — реальные дизайнеры, дома, эпохи, направления
   — максимум 3–5 слов
   — без вымышленных имён и коллекций
   — если ты не уверен, используй обобщения вроде
     «японский стрит 2000-х», «европейский авангард 90-х».
 
-1–2 строки — ШИРЕ КУЛЬТУРЫ:
-  — фильмы, аниме, сериалы, музыка, книги, субкультуры
+2 строки — МУЗЫКА (ОБЯЗАТЕЛЬНО):
+  — трек, альбом, артист или саундтрек
   — максимум 3–7 слов
-  — подбирай то, что честно резонирует с образом
-  — если аутфит явно отсылает к известному тайтлу (например, Paradise Kiss),
+  — пример: «Portishead — Dummy», «Radiohead — OK Computer», «Blade Runner OST, Vangelis»
+  — выбирай то, что честно резонирует с образом по настроению и ритму.
+
+1 строки — ШИРОКАЯ КУЛЬТУРА:
+  — фильмы, аниме, сериалы, книги, субкультуры и т.п.
+  — максимум 3–7 слов
+  — если аутфит явно отсылает к известному тайтлу или фильму/сериалу (например, Paradise Kiss, Blade Runner, Neon Genesis Evangelion, Mr. Robot, Matrix),
     можно использовать его как одну из ссылок.
+    
+Не повторяй одни и те же имена/тайтлы внутри массива.
 
 Если сомневаешься в конкретном дизайнере или коллекции,
 лучше дай более общий, но честный культурный или модный маркер,
@@ -421,34 +428,53 @@ ${briefBlock}
 
 // ---------- formatting helper for Telegram ----------
 
-function formatBorealisMessage(modeLabel, borealis, options = {}) {
-  const { inspirationNote } = options;
-
+function formatBorealisMessage(modeLabel, borealis) {
   const title = (borealis.title || "Готовый образ").trim();
   const description = (borealis.description || "").trim();
   const refs = Array.isArray(borealis.references)
     ? borealis.references
     : [];
 
-  const headerLines = inspirationNote
-    ? [`> Mode: ${modeLabel}`, inspirationNote]
-    : [`> Mode: ${modeLabel}`];
+  // refs уже в нужном порядке: 3 fashion, 2 music, 1 culture
+  const fashion = refs.slice(0, 3).filter(Boolean);
+  const music = refs.slice(3, 5).filter(Boolean);
+  const culture = refs.slice(5, 6).filter(Boolean);
 
-  const refsBlock =
-    refs.length > 0
-      ? ["", "_References:_", ...refs.map((r) => `• ${r}`)].join("\n")
-      : "";
+  const lines = [];
 
-  return [
-    ...headerLines,
-    "",
-    `*${title}*`,
-    "",
-    description,
-    refsBlock,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  // шапка
+  lines.push(`> Mode: ${modeLabel}`);
+  lines.push("");
+  lines.push(`*${title}*`);
+  lines.push("");
+  if (description) {
+    lines.push(description);
+  }
+
+  // референсы
+  if (refs.length > 0) {
+    lines.push("");
+    lines.push("_References:_");
+
+    if (fashion.length) {
+      lines.push("*Fashion:*");
+      fashion.forEach((r) => lines.push(`• ${r}`));
+    }
+
+    if (music.length) {
+      lines.push("");
+      lines.push("*Music:*");
+      music.forEach((r) => lines.push(`• ${r}`));
+    }
+
+    if (culture.length) {
+      lines.push("");
+      lines.push("*Culture:*");
+      culture.forEach((r) => lines.push(`• ${r}`));
+    }
+  }
+
+  return lines.filter(Boolean).join("\n");
 }
 
 // ---------- simple mode detector ----------
