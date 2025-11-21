@@ -5,27 +5,23 @@
 <h1 align="center">Masquerade Engine</h1>
 
 <p align="center">
-  <strong>A multimodal fashion-intelligence engine built for real-time outfit generation, styling and editorial narration.</strong>
+  <strong>A multimodal fashion-intelligence engine for real-time outfit generation, styling, and editorial narration.</strong>
 </p>
 
 ---
 
 ##  What Masquerade Is
 
-Industry-grade try-on.
-Powered by Borealis Masquerade — Fashion Intelligence Engine.
+Masquerade is a lightweight fashion-intelligence system that transforms raw item collages into complete fashion visuals and atmospheric editorial descriptions.
 
-Masquerade is a lightweight, production-ready engine that transforms raw item collages into full fashion visuals and editorial descriptions.  
-It powers AI outfit-builders, stylist assistants, and fashion-tech experiences.
-
-The system combines:
-
--  **Nano Banana** — state-of-the-art AI outfit composition  
--  **Borealis Editorial Engine** — atmospheric fashion narration  
--  **Telegram Bot Layer** — user delivery interface  
--  **Cloud Run** — scalable infra with near-zero idle cost  
+It is built on top of:
+	•	Nano Banana — Gemini 2.5 Flash–based outfit composition
+	•	Borealis Editorial Engine — GPT-powered narration & fashion mood analysis
+	•	Telegram Layer — conversational delivery interface
+	•	Cloud Run — scalable infra with near-zero idle cost
 
 Masquerade = AI × Fashion × Design Philosophy.
+A tool for creative teams, stylists, and brands exploring next-generation fashion workflows.
 
 ---
 
@@ -57,9 +53,9 @@ Nu este un serviciu — este un instrument pentru cei care văd mai mult.
 ```
 /masquerade
 ├── src/
-│   ├── webhook/          # Telegram webhook logic
+│   ├── webhook/          # Telegram webhook logic 
 │   ├── engines/
-│   │   ├── nano-banana/  # Google Vertex Gemini 2.5-Flash outfit generation
+│   │   ├── nano-banana/  # Gemini 2.5-Flash outfit generation
 │   │   └── borealis/     # GPT-based editorial narrator
 │   ├── utils/
 │   └── index.js
@@ -80,18 +76,16 @@ Masquerade is optimized for **cheap, fast, globally-scaled** deployment.
 ### **1. Build container**
 
 ```
-bash
 gcloud builds submit --tag gcr.io/<PROJECT-ID>/masquerade
 
 2. Deploy to Cloud Run
-bash
 gcloud run deploy borealis-engine \
   --image gcr.io/<PROJECT-ID>/masquerade \
   --region=europe-west1 \
   --allow-unauthenticated
 
 3. Set Telegram Webhook
-https://api.telegram.org/bot<TELEGRAM_TOKEN>/setWebhook?url=<CLOUD-RUN-URL>/webhook
+https://api.telegram.org/bot<TELEGRAM_TOKEN>/setWebhook?url=<CLOUD-RUN-URL>/webhook](https://api.telegram.org/bot<TELEGRAM_TOKEN>/setWebhook?url=<CLOUD-RUN-URL>/webhook
 
  Environment Variables (Secret Manager)
 
@@ -106,7 +100,7 @@ Nano Banana (Gemini Image)
 PROJECT_ID
 Google Cloud project id
 
-Values stored via Secret Manager → auto-mounted into Cloud Run.
+All values stored via Secret Manager (auto-mounted into Cloud Run).
 
 ```
 
@@ -122,8 +116,21 @@ Values stored via Secret Manager → auto-mounted into Cloud Run.
 
 # License
 
-No license.
-Masquerade is a proprietary engine designed for private and commercial use.
+Masquerade Engine — Source-Available License
+Copyright (c) 2025 Kirill Dodon — All Rights Reserved
+
+This repository is source-available.
+The code is provided for reading and research purposes only.
+
+You are NOT allowed to:
+	•	use the code in any product or service,
+	•	modify, fork, or adapt any part of the code,
+	•	deploy or redistribute the engine,
+	•	use Masquerade for commercial purposes,
+	•	remove author attribution.
+
+For commercial partnerships, licensing, or collaboration:
+hello@dodon.one
 
 # Credits
 
@@ -131,7 +138,7 @@ Built by Kirill Dodon × Borealis Studio.
 
 ---
 
-## Contact us
+## Contact 
 
 
 <p align="center">
