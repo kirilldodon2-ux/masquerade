@@ -126,8 +126,7 @@ async function downloadTelegramPhoto(message) {
   return { fileId, filePath, buffer };
 }
 
-// ---------- helpers: Nano Banana (Gemini 2.5 Flash Image) ----------
-
+// ---------- helpers: Nano Banana (Gemini 3 Pro Image) ----------
 async function generateNanoBananaImage(buffer, briefText = "", options = {}) {
   if (!VERTEX_API_KEY) {
     console.warn("VERTEX_API_KEY is missing, skipping Nano Banana");
@@ -200,7 +199,7 @@ Framing and background:
 
   const url =
     "https://aiplatform.googleapis.com/v1/" +
-    "publishers/google/models/gemini-2.5-flash-image:generateContent" +
+    "publishers/google/models/gemini-3-pro-image-preview:generateContent" +
     `?key=${VERTEX_API_KEY}`;
 
   const resp = await axios.post(url, body, {
@@ -225,7 +224,7 @@ Framing and background:
     throw new Error("No Base64 image in Nano Banana response");
   }
 
-  console.log("🟡 Nano Banana image generated");
+  console.log("🟡 Nano Banana (Gemini 3 Pro Image) generated");
   return Buffer.from(inline.data, "base64");
 }
 
