@@ -198,9 +198,9 @@ Framing and background:
   };
 
   const url =
-    "https://aiplatform.googleapis.com/v1/" +
-    "publishers/google/models/gemini-3-pro-image-preview:generateContent" +
-    `?key=${VERTEX_API_KEY}`;
+   "https://aiplatform.googleapis.com/v1/" +
+   "publishers/google/models/gemini-2.5-flash-image:generateContent" +
+   `?key=${VERTEX_API_KEY}`;
 
   const resp = await axios.post(url, body, {
     headers: { "Content-Type": "application/json" },
