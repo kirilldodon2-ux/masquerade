@@ -1,3 +1,7 @@
+// LEGACY ENGINE:
+// Эта версия Borealis/Nano Banana сейчас НЕ используется.
+// Актуальная логика живёт в src/index.js (generateBorealisDescription / generateNanoBananaImage / runOutfitPipeline).
+// Не редактируй для продакшена — только если будем собирать отдельный SDK/плагин.
 // src/engines/nanoBanana.js
 import axios from "axios";
 
