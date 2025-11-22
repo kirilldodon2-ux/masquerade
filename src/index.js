@@ -228,9 +228,14 @@ Framing and background:
   console.log("🟡 Nano Banana image generated");
   return Buffer.from(inline.data, "base64");
 }
+
 // ---------- helpers: Borealis description (OpenAI Responses) ----------
 
-async function generateBorealisDescription({ filePath, briefText = "" }) {
+async function generateBorealisDescription({
+  filePath = null,
+  briefText = "",
+  imageBase64 = null,
+}) {
   if (!OPENAI_API_KEY) {
     console.warn("OPENAI_API_KEY missing, skipping Borealis description");
     return {
@@ -240,15 +245,21 @@ async function generateBorealisDescription({ filePath, briefText = "" }) {
     };
   }
 
-  const imageUrl = filePath
-    ? `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`
-    : null;
+  let imageUrl = null;
+
+  if (imageBase64) {
+    // generic API / Figma / etc
+    imageUrl = `data:image/jpeg;base64,${imageBase64}`;
+  } else if (filePath) {
+    // Telegram
+    imageUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`;
+  }
 
   const systemPrompt = `
 You are BOREALIS EDITORIAL ENGINE 1.1 — a high-precision fashion narrator combining
 OpenAI clarity, Margiela restraint, Kojima introspection and archival fashion culture.
 
-Your task: создать атмосферное, кинематографичное описание образа + ровно ПЯТЬ архивных отсылок
+Your task: создать атмосферное, кинематографичное описание образа + ровно ШЕСТЬ архивных отсылок
 на основе референс-лука пользователя (фото / коллаж / модель).
 
 ГЛАВНОЕ:
@@ -281,6 +292,9 @@ RULES FOR DESCRIPTION:
 — структура: состояние → настроение → линии → фактуры → характер → финальная нота
 — если фон важен, используй его как мягкий фон настроения, а не как главный сюжет
 — одежду не выдумывай, детали не меняй, но трактуй их эмоционально
+— избегай пустых клише вроде «в этом образе ощущается», «в этом луке прослеживается»
+— начинай фразы конкретнее: с действия, состояния, света, жеста или пространства
+— предложения держи собранными: без многословия и повторов
 
 RULES FOR REFERENCES (ВСЕГДА РОВНО 6 ШТУК):
 Массив "references" ДОЛЖЕН содержать ровно 6 строк.
@@ -298,12 +312,12 @@ RULES FOR REFERENCES (ВСЕГДА РОВНО 6 ШТУК):
   — пример: «Portishead — Dummy», «Radiohead — OK Computer», «Blade Runner OST, Vangelis»
   — выбирай то, что честно резонирует с образом по настроению и ритму.
 
-1 строки — ШИРОКАЯ КУЛЬТУРА:
+1 строка — ШИРОКАЯ КУЛЬТУРА:
   — фильмы, аниме, сериалы, книги, субкультуры и т.п.
   — максимум 3–7 слов
   — если аутфит явно отсылает к известному тайтлу или фильму/сериалу (например, Paradise Kiss, Blade Runner, Neon Genesis Evangelion, Mr. Robot, Matrix),
     можно использовать его как одну из ссылок.
-    
+
 Не повторяй одни и те же имена/тайтлы внутри массива.
 
 Если сомневаешься в конкретном дизайнере или коллекции,
@@ -413,12 +427,12 @@ ${briefBlock}
     ? parsed.references
     : [];
 
-  // Нормализуем references: убираем пустые, обрезаем до 5
+  // Нормализуем references: убираем пустые, обрезаем до 6
   references = references
     .filter((r) => typeof r === "string" && r.trim())
     .map((r) => r.trim());
-  if (references.length > 5) {
-    references = references.slice(0, 5);
+  if (references.length > 6) {
+    references = references.slice(0, 6);
   }
 
   console.log("🟣 Borealis description generated");
@@ -435,7 +449,7 @@ function formatBorealisMessage(modeLabel, borealis) {
     ? borealis.references
     : [];
 
-  // refs уже в нужном порядке: 3 fashion, 2 music, 1 culture
+  // refs ожидаются в порядке: 3 fashion, 2 music, 1 culture
   const fashion = refs.slice(0, 3).filter(Boolean);
   const music = refs.slice(3, 5).filter(Boolean);
   const culture = refs.slice(5, 6).filter(Boolean);
@@ -507,6 +521,43 @@ function detectMode(message) {
   return "OUTFIT_ONLY";
 }
 
+// ---------- core pipeline: image buffer -> outfit image + Borealis ----------
+
+async function runOutfitPipeline({
+  buffer,
+  filePath = null,
+  brief = "",
+  inspirationMode = false,
+}) {
+  // 1) Nano Banana
+  const nbImageBuffer = await generateNanoBananaImage(buffer, brief, {
+    inspirationMode,
+  }).catch((err) => {
+    console.error("Nano Banana error:", err);
+    return null;
+  });
+
+  // 2) Borealis — всегда видит ту же картинку:
+  //    - в Telegram через filePath (URL),
+  //    - в /api/outfit через base64 (data: URL).
+  const imageBase64 = !filePath && buffer ? buffer.toString("base64") : null;
+
+  const borealis = await generateBorealisDescription({
+    filePath,
+    briefText: brief,
+    imageBase64,
+  }).catch((err) => {
+    console.error("Borealis error:", err);
+    return {
+      title: "Готовый образ",
+      description: "",
+      references: [],
+    };
+  });
+
+  return { nbImageBuffer, borealis };
+}
+
 // ---------- handlers ----------
 
 async function handleOutfitOnly(message) {
@@ -520,38 +571,21 @@ async function handleOutfitOnly(message) {
     lower.includes("#inspire") ||
     lower.includes("!vibe");
 
-  // Чистим подсказку от служебного тега
-  const caption = rawCaption.replace(/!inspire|#inspire|!vibe/gi, "").trim();
+  // Чистим подсказку от служебного тега → это то, что увидит Borealis и Nano Banana
+  const brief = rawCaption.replace(/!inspire|#inspire|!vibe/gi, "").trim();
 
   // 1) фото из Telegram
   const { filePath, buffer } = await downloadTelegramPhoto(message);
 
-  // 2) Nano Banana — с флагом inspirationMode
-  const nbImageBuffer = await generateNanoBananaImage(buffer, caption, {
-    inspirationMode,
-  }).catch((err) => {
-    console.error("Nano Banana error:", err);
-    return null;
-  });
-
-  // 3) Borealis описание
-  const borealis = await generateBorealisDescription({
+  // 2) Прогоняем через общее ядро
+  const { nbImageBuffer, borealis } = await runOutfitPipeline({
+    buffer,
     filePath,
-    briefText: caption,
-  }).catch((err) => {
-    console.error("Borealis error:", err);
-    return {
-      title: "Готовый образ",
-      description: "",
-      references: [],
-    };
+    brief,
+    inspirationMode,
   });
 
-  const captionText = formatBorealisMessage("Outfit / Collage.", borealis, {
-    inspirationNote: inspirationMode
-      ? "_Source: visual inspiration, not clothing collage._"
-      : "",
-  });
+  const captionText = formatBorealisMessage("Outfit / Collage.", borealis);
 
   if (nbImageBuffer) {
     await sendTelegramPhoto(chatId, nbImageBuffer, captionText);
@@ -607,12 +641,13 @@ async function handleTextOnly(message) {
     return;
   }
 
-  // --- новый режим: text-only brief → Borealis outfit ---
+  // --- новый режим: text-only brief → Borealis outfit (без картинки) ---
 
   try {
     const borealis = await generateBorealisDescription({
       filePath: null, // нет картинки, только текст
       briefText: text,
+      imageBase64: null,
     });
 
     const reply = formatBorealisMessage("Text-only brief.", borealis);
@@ -637,6 +672,54 @@ async function handleTextOnly(message) {
 
 app.get("/", (req, res) => {
   res.send("Masquerade Engine is running.");
+});
+
+// ---------- public JSON API: /api/outfit ----------
+//
+// POST /api/outfit
+// {
+//   "image_base64": "<jpeg in base64>",
+//   "brief": "optional stylist text",
+//   "inspiration_mode": false
+// }
+//
+// Response 200:
+// {
+//   "mode": "OUTFIT_ONLY",
+//   "borealis": { "title": "...", "description": "...", "references": [...] },
+//   "image_base64": "<jpeg in base64 or null>"
+// }
+
+app.post("/api/outfit", async (req, res) => {
+  try {
+    const { image_base64, brief = "", inspiration_mode = false } = req.body || {};
+
+    if (!image_base64) {
+      return res.status(400).json({ error: "image_base64 is required" });
+    }
+
+    const buffer = Buffer.from(image_base64, "base64");
+
+    const { nbImageBuffer, borealis } = await runOutfitPipeline({
+      buffer,
+      filePath: null,           // нет Telegram file_path, работаем как generic
+      brief,
+      inspirationMode: !!inspiration_mode,
+    });
+
+    const outImageBase64 = nbImageBuffer
+      ? nbImageBuffer.toString("base64")
+      : null;
+
+    return res.json({
+      mode: "OUTFIT_ONLY",
+      borealis,
+      image_base64: outImageBase64,
+    });
+  } catch (err) {
+    console.error("❌ Error in /api/outfit:", err?.response?.data || err);
+    return res.status(500).json({ error: "internal_error" });
+  }
 });
 
 app.post("/webhook", async (req, res) => {
