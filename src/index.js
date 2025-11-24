@@ -1,5 +1,5 @@
 // src/index.js
-// Masquerade / Borealis Engine v1.5.x
+// Masquerade / Borealis Engine v1.6
 
 import express from "express";
 import bodyParser from "body-parser";
@@ -229,6 +229,16 @@ Output requirements:
 - keep details sharp and clean, high resolution.`
     : "";
 
+  const absoluteConstraints = `
+ABSOLUTE CONSTRAINTS (MANDATORY):
+- DO NOT invent new garments.
+- DO NOT change cuts, materials, proportions, stitching, prints, or length.
+- DO NOT introduce new colors.
+- DO NOT stylize, redesign, or reinterpret the items.
+- Every garment MUST appear exactly as in the collage.
+- No smoothing, redesigning, stylization, or reshaping of clothing.
+  `;
+
   const baseInstruction = inspirationMode
     ? `You are a fashion concept engine.
 Use this image as pure visual inspiration: colors, shapes, textures, composition, mood.
@@ -246,7 +256,8 @@ Background and light:
 
 Clothing:
 - translate motifs from the image into clothing and accessories,
-  but do NOT literally redraw non-fashion objects from the picture.${aspectLine}`
+  but do NOT literally redraw non-fashion objects from the picture.${aspectLine}
+${absoluteConstraints}`
     : `You are a fashion virtual try-on engine.
 Take this collage of CLOTHING items and dress a single standing human model
 in these exact clothes and accessories.
@@ -265,7 +276,8 @@ Framing and background:
 - do not crop the head or feet
 - unless the stylist brief explicitly asks for another location,
   always render on a plain white studio cyclorama background with soft even light
-  (no streets, no interiors, no props, no extra people).${aspectLine}`;
+  (no streets, no interiors, no props, no extra people).${aspectLine}
+${absoluteConstraints}`;
 
   const textPrompt = brief
     ? `${baseInstruction}\n\nStylist brief: ${brief}`
@@ -706,8 +718,11 @@ async function handleModelWaitingItems(message) {
     "*Mode:* Model only.",
     "",
     "Я принял модель.",
-    "Теперь кинь 3–8 вещей или коллаж, которые хочешь примерить на неё.",
-    "Можно также просто описать настроение образа (vibe) — я соберу референс.",
+    "Сейчас режим `model` работает как подготовка: я запоминаю, что это именно модель.",
+    "Пока гардероб всё равно читается из следующего коллажа / фото вещей.",
+    "",
+    "Следующий шаг в roadmap — научить Masquerade гибридному режиму:",
+    "отдельно модель + отдельно коллаж вещей → один собранный лук.",
   ].join("\n");
 
   await sendTelegramMessage(chatId, reply);
@@ -729,11 +744,11 @@ async function handleTextOnly(message) {
       "",
       "Я работаю с изображениями и собираю цельные образы.",
       "",
-      "Базовый флоу:",
+      "*Базовый флоу*:",
       "• пришли коллаж на белом фоне или несколько фото вещей + короткий бриф (vibe / история),",
       "• получишь готовый аутфит (модель + лук) и Borealis-описание.",
       "",
-      "Режимы:",
+      "*Режимы:*",
       "• без тегов — считаю, что это коллаж вещей.",
       "• `!inspire` / `!vibe` — картинка как moodboard, я придумываю look по мотивам.",
       "• `!model` — это просто модель, вещи пришли отдельно (режим «жду гардероб»).",
@@ -750,16 +765,17 @@ async function handleTextOnly(message) {
       "Masquerade — fashion-intelligence engine.",
       "",
       "*Как со мной работать:*",
-      "1) Пришли коллаж / несколько фото вещей.",
+      "1) Пришли коллаж / фото вещей на нейтральном фоне.",
       "2) Добавь пару строк про настроение и контекст.",
       "3) Получи собранный аутфит, визуал и Borealis-описание.",
       "",
-      "*Режимы:*",
-      "• обычное фото / коллаж — собираю образ из вещей.",
-      "• `!inspire` / `!vibe` в подписи — воспринимаю картинку как moodboard и собираю look по мотивам.",
-      "• `!model` в подписи — фиксирую только модель, дальше жду вещи отдельным сообщением.",
+      "*Теги режимов:*",
+      "• `!inspire` или `!vibe` — картинка как moodboard, я собираю look по мотивам.",
+      "• `!model` — фото модели отдельно, гардероб придёт следующими картинками (roadmap-фича).",
       "",
-      "Можно также в брифе указать формат кадра: `3x4` (по умолчанию), `9x16` (stories), `16x9` (горизонт).",
+      "Формат кадра можно указать в брифе: `3x4`, `9x16`, `16x9`.",
+      "",
+      "Dev-команда: `/borealis текст` — чисто текстовый запуск Borealis без картинки.",
     ].join("\n");
 
     await sendTelegramMessage(chatId, reply);
