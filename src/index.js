@@ -1,5 +1,5 @@
 // src/index.js
-// Masquerade / Borealis Engine v1.5
+// Masquerade / Borealis Engine v1.5.x
 
 import express from "express";
 import bodyParser from "body-parser";
@@ -130,7 +130,8 @@ async function downloadTelegramPhoto(message) {
 }
 
 // ======================================================
-// ============ Aspect ratio helpers (3×4 / 9×16 / 16×9) ============
+// 2. Aspect ratio helpers (3×4 / 9×16 / 16×9)
+// ======================================================
 
 const DEFAULT_ASPECT_HINT = "vertical 3:4, high resolution";
 
@@ -208,14 +209,18 @@ async function generateNanoBananaImage(buffer, briefText = "", options = {}) {
     return null;
   }
 
-  const { inspirationMode = false, aspectFormat = null } = options;
+  // options: { inspirationMode?: boolean, aspectHintOverride?: string | null }
+  const { inspirationMode = false, aspectHintOverride = null } = options;
 
   const base64 = buffer.toString("base64");
   const brief = (briefText || "").trim();
 
-  // 👉 новый кусок: определяем формат кадра
-  const aspectHintFromFormat = getAspectHintFromFormat(aspectFormat);
-  const aspectHint = aspectHintFromFormat || detectAspectHintFromBrief(brief);
+  // финальный хинт: либо явный override, либо из брифа
+  const aspectHint =
+    aspectHintOverride != null
+      ? aspectHintOverride
+      : detectAspectHintFromBrief(brief);
+
   const aspectLine = aspectHint
     ? `
 
@@ -591,6 +596,10 @@ function detectMode(message) {
     "только модель",
     "just model",
     "face only",
+    "!model",
+    "#model",
+    "model only",
+    "mode: model",
   ];
 
   const containsModelOnlyHint = modelOnlyHints.some((h) =>
@@ -718,11 +727,18 @@ async function handleTextOnly(message) {
     const reply = [
       "🧥 *Borealis Masquerade онлайн.*",
       "",
-      "Я работаю с изображениями.",
+      "Я работаю с изображениями и собираю цельные образы.",
       "",
-      "Пришли:",
-      "• коллаж на белом фоне или несколько фото вещей + короткий бриф (vibe / история),",
-      "• или вдохновляющую картинку + бриф и тег `!inspire` / `!vibe` — соберу аутфит по мотивам.",
+      "Базовый флоу:",
+      "• пришли коллаж на белом фоне или несколько фото вещей + короткий бриф (vibe / история),",
+      "• получишь готовый аутфит (модель + лук) и Borealis-описание.",
+      "",
+      "Режимы:",
+      "• без тегов — считаю, что это коллаж вещей.",
+      "• `!inspire` / `!vibe` — картинка как moodboard, я придумываю look по мотивам.",
+      "• `!model` — это просто модель, вещи пришли отдельно (режим «жду гардероб»).",
+      "",
+      "Формат кадра можно подсказать в тексте брифа: `3x4`, `9x16` или `16x9`.",
     ].join("\n");
 
     await sendTelegramMessage(chatId, reply);
@@ -733,14 +749,17 @@ async function handleTextOnly(message) {
     const reply = [
       "Masquerade — fashion-intelligence engine.",
       "",
-      "Как со мной работать:",
-      "1) Пришли коллаж / фото вещей.",
+      "*Как со мной работать:*",
+      "1) Пришли коллаж / несколько фото вещей.",
       "2) Добавь пару строк про настроение и контекст.",
       "3) Получи собранный аутфит, визуал и Borealis-описание.",
       "",
-      "Inspiration-mode:",
-      "• пришли mood-картинку + бриф и добавь `!inspire` или `!vibe`,",
-      "• я соберу лук по мотивам этой картинки.",
+      "*Режимы:*",
+      "• обычное фото / коллаж — собираю образ из вещей.",
+      "• `!inspire` / `!vibe` в подписи — воспринимаю картинку как moodboard и собираю look по мотивам.",
+      "• `!model` в подписи — фиксирую только модель, дальше жду вещи отдельным сообщением.",
+      "",
+      "Можно также в брифе указать формат кадра: `3x4` (по умолчанию), `9x16` (stories), `16x9` (горизонт).",
     ].join("\n");
 
     await sendTelegramMessage(chatId, reply);
