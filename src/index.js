@@ -130,22 +130,18 @@ async function downloadTelegramPhoto(message) {
 }
 
 // ======================================================
-// 2. Aspect ratio helpers (3×4 / 9×16 / 16×9)
-// ======================================================
+// ============ Aspect ratio helpers (3×4 / 9×16 / 16×9) ============
 
-/**
- * Default aspect: vertical 3:4 high-res (самый “аутфитный” формат).
- */
 const DEFAULT_ASPECT_HINT = "vertical 3:4, high resolution";
 
 /**
- * Parse aspect from brief text (both RU/EN hints).
+ * Parse aspect from brief text (RU/EN hints) or fallback to default.
  */
 function detectAspectHintFromBrief(briefText) {
   if (!briefText) return DEFAULT_ASPECT_HINT;
   const t = briefText.toLowerCase();
 
-  // явные вертикальные сторис 9×16
+  // вертикальные сторис 9×16
   if (
     t.includes("9x16") ||
     t.includes("9:16") ||
@@ -167,17 +163,23 @@ function detectAspectHintFromBrief(briefText) {
     return "horizontal 16:9, high resolution";
   }
 
-  // явная ссылка на 3×4 / 4:3
-  if (t.includes("3x4") || t.includes("3:4") || t.includes("4x3") || t.includes("4:3")) {
+  // 3×4 / 4:3
+  if (
+    t.includes("3x4") ||
+    t.includes("3:4") ||
+    t.includes("4x3") ||
+    t.includes("4:3")
+  ) {
     return "vertical 3:4, high resolution";
   }
 
-  // дефолт
+  // дефолт: “аутфитный” вертикальный 3:4
   return DEFAULT_ASPECT_HINT;
 }
 
 /**
  * Optional explicit format from API: "3x4" | "9x16" | "16x9".
+ * (для /api/outfit, если захочешь формат прокидывать полем format)
  */
 function getAspectHintFromFormat(format) {
   if (!format) return null;
@@ -206,14 +208,20 @@ async function generateNanoBananaImage(buffer, briefText = "", options = {}) {
     return null;
   }
 
-  const { inspirationMode = false, aspectHintOverride = null } = options;
+  const { inspirationMode = false, aspectFormat = null } = options;
 
   const base64 = buffer.toString("base64");
   const brief = (briefText || "").trim();
 
-  const aspectHint = aspectHintOverride || detectAspectHintFromBrief(brief);
+  // 👉 новый кусок: определяем формат кадра
+  const aspectHintFromFormat = getAspectHintFromFormat(aspectFormat);
+  const aspectHint = aspectHintFromFormat || detectAspectHintFromBrief(brief);
   const aspectLine = aspectHint
-    ? `\n\nOutput requirements:\n- image aspect: ${aspectHint}\n- keep details sharp and clean, high resolution.`
+    ? `
+
+Output requirements:
+- image aspect: ${aspectHint}
+- keep details sharp and clean, high resolution.`
     : "";
 
   const baseInstruction = inspirationMode
@@ -275,7 +283,6 @@ Framing and background:
     ],
   };
 
-  // NOTE: using gemini-2.5-flash-image as the stable primary model.
   const url =
     "https://aiplatform.googleapis.com/v1/" +
     "publishers/google/models/gemini-2.5-flash-image:generateContent" +
