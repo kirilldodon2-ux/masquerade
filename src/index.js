@@ -1,4 +1,6 @@
 // src/index.js
+// Masquerade / Borealis Engine v1.5
+
 import express from "express";
 import bodyParser from "body-parser";
 import axios from "axios";
@@ -13,6 +15,8 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const VERTEX_API_KEY = process.env.VERTEX_API_KEY;
 
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
+
+// ----------- basic sanity logs -----------
 
 if (!TELEGRAM_BOT_TOKEN) {
   console.error("❌ TELEGRAM_BOT_TOKEN is missing");
@@ -29,7 +33,9 @@ if (!VERTEX_API_KEY) {
 
 console.log("Masquerade booting…");
 
-// ---------- helpers: Telegram ----------
+// ======================================================
+// 1. Telegram helpers
+// ======================================================
 
 async function sendTelegramMessage(chatId, text, extra = {}) {
   if (!TELEGRAM_BOT_TOKEN) return;
@@ -88,10 +94,7 @@ async function sendTelegramPhoto(chatId, imageBuffer, caption) {
 }
 
 /**
- * Скачиваем оригинал фото из Telegram:
- *  - находим самое большое в message.photo
- *  - получаем file_path через getFile
- *  - скачиваем байты
+ * Download largest photo variant from Telegram message.
  */
 async function downloadTelegramPhoto(message) {
   const photos = message.photo;
@@ -126,17 +129,92 @@ async function downloadTelegramPhoto(message) {
   return { fileId, filePath, buffer };
 }
 
-// ---------- helpers: Nano Banana (Gemini 3 Pro Image) ----------
+// ======================================================
+// 2. Aspect ratio helpers (3×4 / 9×16 / 16×9)
+// ======================================================
+
+/**
+ * Default aspect: vertical 3:4 high-res (самый “аутфитный” формат).
+ */
+const DEFAULT_ASPECT_HINT = "vertical 3:4, high resolution";
+
+/**
+ * Parse aspect from brief text (both RU/EN hints).
+ */
+function detectAspectHintFromBrief(briefText) {
+  if (!briefText) return DEFAULT_ASPECT_HINT;
+  const t = briefText.toLowerCase();
+
+  // явные вертикальные сторис 9×16
+  if (
+    t.includes("9x16") ||
+    t.includes("9:16") ||
+    t.includes("stories") ||
+    t.includes("story") ||
+    t.includes("сторис") ||
+    t.includes("вертикал")
+  ) {
+    return "vertical 9:16, high resolution";
+  }
+
+  // горизонтальный 16×9
+  if (
+    t.includes("16x9") ||
+    t.includes("16:9") ||
+    t.includes("landscape") ||
+    t.includes("горизонт")
+  ) {
+    return "horizontal 16:9, high resolution";
+  }
+
+  // явная ссылка на 3×4 / 4:3
+  if (t.includes("3x4") || t.includes("3:4") || t.includes("4x3") || t.includes("4:3")) {
+    return "vertical 3:4, high resolution";
+  }
+
+  // дефолт
+  return DEFAULT_ASPECT_HINT;
+}
+
+/**
+ * Optional explicit format from API: "3x4" | "9x16" | "16x9".
+ */
+function getAspectHintFromFormat(format) {
+  if (!format) return null;
+  const f = String(format).toLowerCase();
+
+  if (f === "9x16" || f === "9:16") {
+    return "vertical 9:16, high resolution";
+  }
+  if (f === "16x9" || f === "16:9") {
+    return "horizontal 16:9, high resolution";
+  }
+  if (f === "3x4" || f === "3:4" || f === "4x3" || f === "4:3") {
+    return "vertical 3:4, high resolution";
+  }
+
+  return null;
+}
+
+// ======================================================
+// 3. Nano Banana (Gemini 2.5 Flash Image) engine
+// ======================================================
+
 async function generateNanoBananaImage(buffer, briefText = "", options = {}) {
   if (!VERTEX_API_KEY) {
     console.warn("VERTEX_API_KEY is missing, skipping Nano Banana");
     return null;
   }
 
-  const { inspirationMode = false } = options;
+  const { inspirationMode = false, aspectHintOverride = null } = options;
 
   const base64 = buffer.toString("base64");
   const brief = (briefText || "").trim();
+
+  const aspectHint = aspectHintOverride || detectAspectHintFromBrief(brief);
+  const aspectLine = aspectHint
+    ? `\n\nOutput requirements:\n- image aspect: ${aspectHint}\n- keep details sharp and clean, high resolution.`
+    : "";
 
   const baseInstruction = inspirationMode
     ? `You are a fashion concept engine.
@@ -155,7 +233,7 @@ Background and light:
 
 Clothing:
 - translate motifs from the image into clothing and accessories,
-  but do NOT literally redraw non-fashion objects from the picture.`
+  but do NOT literally redraw non-fashion objects from the picture.${aspectLine}`
     : `You are a fashion virtual try-on engine.
 Take this collage of CLOTHING items and dress a single standing human model
 in these exact clothes and accessories.
@@ -174,7 +252,7 @@ Framing and background:
 - do not crop the head or feet
 - unless the stylist brief explicitly asks for another location,
   always render on a plain white studio cyclorama background with soft even light
-  (no streets, no interiors, no props, no extra people).`;
+  (no streets, no interiors, no props, no extra people).${aspectLine}`;
 
   const textPrompt = brief
     ? `${baseInstruction}\n\nStylist brief: ${brief}`
@@ -197,10 +275,11 @@ Framing and background:
     ],
   };
 
+  // NOTE: using gemini-2.5-flash-image as the stable primary model.
   const url =
-   "https://aiplatform.googleapis.com/v1/" +
-   "publishers/google/models/gemini-2.5-flash-image:generateContent" +
-   `?key=${VERTEX_API_KEY}`;
+    "https://aiplatform.googleapis.com/v1/" +
+    "publishers/google/models/gemini-2.5-flash-image:generateContent" +
+    `?key=${VERTEX_API_KEY}`;
 
   const resp = await axios.post(url, body, {
     headers: { "Content-Type": "application/json" },
@@ -224,11 +303,13 @@ Framing and background:
     throw new Error("No Base64 image in Nano Banana response");
   }
 
-  console.log("🟡 Nano Banana (Gemini 3 Pro Image) generated");
+  console.log("🟡 Nano Banana (Gemini 2.5 Flash Image) generated");
   return Buffer.from(inline.data, "base64");
 }
 
-// ---------- helpers: Borealis description (OpenAI Responses) ----------
+// ======================================================
+// 4. Borealis description (OpenAI Responses)
+// ======================================================
 
 async function generateBorealisDescription({
   filePath = null,
@@ -426,7 +507,7 @@ ${briefBlock}
     ? parsed.references
     : [];
 
-  // Нормализуем references: убираем пустые, обрезаем до 6
+  // Normalize references: non-empty, max 6
   references = references
     .filter((r) => typeof r === "string" && r.trim())
     .map((r) => r.trim());
@@ -439,7 +520,9 @@ ${briefBlock}
   return { title, description, references };
 }
 
-// ---------- formatting helper for Telegram ----------
+// ======================================================
+// 5. Formatting for Telegram
+// ======================================================
 
 function formatBorealisMessage(modeLabel, borealis) {
   const title = (borealis.title || "Готовый образ").trim();
@@ -448,14 +531,13 @@ function formatBorealisMessage(modeLabel, borealis) {
     ? borealis.references
     : [];
 
-  // refs ожидаются в порядке: 3 fashion, 2 music, 1 culture
   const fashion = refs.slice(0, 3).filter(Boolean);
   const music = refs.slice(3, 5).filter(Boolean);
   const culture = refs.slice(5, 6).filter(Boolean);
 
   const lines = [];
 
-  // шапка
+  // header
   lines.push(`> Mode: ${modeLabel}`);
   lines.push("");
   lines.push(`*${title}*`);
@@ -464,7 +546,6 @@ function formatBorealisMessage(modeLabel, borealis) {
     lines.push(description);
   }
 
-  // референсы
   if (refs.length > 0) {
     lines.push("");
     lines.push("_References:_");
@@ -490,7 +571,9 @@ function formatBorealisMessage(modeLabel, borealis) {
   return lines.filter(Boolean).join("\n");
 }
 
-// ---------- simple mode detector ----------
+// ======================================================
+// 6. Mode detection
+// ======================================================
 
 function detectMode(message) {
   const hasPhoto = Boolean(message.photo && message.photo.length);
@@ -511,34 +594,35 @@ function detectMode(message) {
     return "TEXT_ONLY";
   }
 
-  // Явно говорит, что это только модель → ждём вещи
   if (containsModelOnlyHint) {
     return "MODEL_WAITING_ITEMS";
   }
 
-  // До реального try-on всё с фото считаем коллажом / аутфитом
+  // По умолчанию — считаем, что это коллаж / аутфит
   return "OUTFIT_ONLY";
 }
 
-// ---------- core pipeline: image buffer -> outfit image + Borealis ----------
+// ======================================================
+// 7. Core pipeline: buffer -> NanoBanana + Borealis
+// ======================================================
 
 async function runOutfitPipeline({
   buffer,
   filePath = null,
   brief = "",
   inspirationMode = false,
+  aspectHintOverride = null,
 }) {
-  // 1) Nano Banana
+  // 1) Nano Banana — визуал
   const nbImageBuffer = await generateNanoBananaImage(buffer, brief, {
     inspirationMode,
+    aspectHintOverride,
   }).catch((err) => {
-    console.error("Nano Banana error:", err);
+    console.error("Nano Banana error:", err?.response?.data || err);
     return null;
   });
 
-  // 2) Borealis — всегда видит ту же картинку:
-  //    - в Telegram через filePath (URL),
-  //    - в /api/outfit через base64 (data: URL).
+  // 2) Borealis — описание
   const imageBase64 = !filePath && buffer ? buffer.toString("base64") : null;
 
   const borealis = await generateBorealisDescription({
@@ -546,7 +630,7 @@ async function runOutfitPipeline({
     briefText: brief,
     imageBase64,
   }).catch((err) => {
-    console.error("Borealis error:", err);
+    console.error("Borealis error:", err?.response?.data || err);
     return {
       title: "Готовый образ",
       description: "",
@@ -557,34 +641,40 @@ async function runOutfitPipeline({
   return { nbImageBuffer, borealis };
 }
 
-// ---------- handlers ----------
+// ======================================================
+// 8. Telegram handlers
+// ======================================================
 
 async function handleOutfitOnly(message) {
   const chatId = message.chat.id;
   const rawCaption = message.caption || message.text || "";
   const lower = rawCaption.toLowerCase();
 
-  // Явный флаг inspiration-режима
+  // explicit inspiration flag
   const inspirationMode =
     lower.includes("!inspire") ||
     lower.includes("#inspire") ||
     lower.includes("!vibe");
 
-  // Чистим подсказку от служебного тега → это то, что увидит Borealis и Nano Banana
+  // clean brief from flags
   const brief = rawCaption.replace(/!inspire|#inspire|!vibe/gi, "").trim();
 
-  // 1) фото из Telegram
+  // 1) get photo
   const { filePath, buffer } = await downloadTelegramPhoto(message);
 
-  // 2) Прогоняем через общее ядро
+  // 2) run engine
   const { nbImageBuffer, borealis } = await runOutfitPipeline({
     buffer,
     filePath,
     brief,
     inspirationMode,
+    aspectHintOverride: null, // Telegram → формат из брифа / дефолт
   });
 
-  const captionText = formatBorealisMessage("Outfit / Collage.", borealis);
+  const captionText = formatBorealisMessage(
+    inspirationMode ? "Inspiration moodboard." : "Outfit / Collage.",
+    borealis
+  );
 
   if (nbImageBuffer) {
     await sendTelegramPhoto(chatId, nbImageBuffer, captionText);
@@ -607,18 +697,25 @@ async function handleModelWaitingItems(message) {
   await sendTelegramMessage(chatId, reply);
 }
 
+/**
+ * TEXT_ONLY: честный режим — бот ждёт картинку.
+ * + dev-команда /borealis для текстового теста редактора.
+ */
 async function handleTextOnly(message) {
   const chatId = message.chat.id;
   const text = message.text || "";
 
-  // --- команды ---
+  // --- commands ---
 
   if (text.startsWith("/start")) {
     const reply = [
       "🧥 *Borealis Masquerade онлайн.*",
       "",
-      "Пришли коллаж на белом фоне или несколько фото вещей + короткий бриф (vibe / история).",
-      "Я соберу цельный образ и дам редакторское описание.",
+      "Я работаю с изображениями.",
+      "",
+      "Пришли:",
+      "• коллаж на белом фоне или несколько фото вещей + короткий бриф (vibe / история),",
+      "• или вдохновляющую картинку + бриф и тег `!inspire` / `!vibe` — соберу аутфит по мотивам.",
     ].join("\n");
 
     await sendTelegramMessage(chatId, reply);
@@ -629,81 +726,108 @@ async function handleTextOnly(message) {
     const reply = [
       "Masquerade — fashion-intelligence engine.",
       "",
+      "Как со мной работать:",
       "1) Пришли коллаж / фото вещей.",
       "2) Добавь пару строк про настроение и контекст.",
       "3) Получи собранный аутфит, визуал и Borealis-описание.",
       "",
-      "Плюс: можешь просто описать образ словами — я соберу его из текста.",
+      "Inspiration-mode:",
+      "• пришли mood-картинку + бриф и добавь `!inspire` или `!vibe`,",
+      "• я соберу лук по мотивам этой картинки.",
     ].join("\n");
 
     await sendTelegramMessage(chatId, reply);
     return;
   }
 
-  // --- новый режим: text-only brief → Borealis outfit (без картинки) ---
+  // --- dev-only: /borealis {text} → текстовый Borealis без картинки ---
 
-  try {
-    const borealis = await generateBorealisDescription({
-      filePath: null, // нет картинки, только текст
-      briefText: text,
-      imageBase64: null,
-    });
+  if (text.startsWith("/borealis ")) {
+    const brief = text.replace("/borealis", "").trim();
 
-    const reply = formatBorealisMessage("Text-only brief.", borealis);
+    try {
+      const borealis = await generateBorealisDescription({
+        filePath: null,
+        briefText: brief,
+        imageBase64: null,
+      });
 
-    await sendTelegramMessage(chatId, reply);
-  } catch (err) {
-    console.error("Borealis text-only error:", err?.response?.data || err);
+      const reply = formatBorealisMessage("Text-only brief (dev).", borealis);
+      await sendTelegramMessage(chatId, reply);
+    } catch (err) {
+      console.error("Borealis text-only error:", err?.response?.data || err);
+      await sendTelegramMessage(
+        chatId,
+        "Не удалось обработать текстовый бриф через Borealis."
+      );
+    }
 
-    const fallback = [
-      "Не удалось обработать бриф через Borealis.",
-      "",
-      "Но ты можешь:",
-      "• прислать коллаж / фото вещей,",
-      "• или попробовать сократить / переформулировать текст.",
-    ].join("\n");
-
-    await sendTelegramMessage(chatId, fallback);
+    return;
   }
+
+  // --- default: no image → honestly ask for image ---
+
+  const reply = [
+    "Я жду изображение, чтобы собрать образ. 🌫",
+    "",
+    "Отправь:",
+    "• коллаж с вещами + бриф,",
+    "• или вдохновляющую картинку + `!inspire` / `!vibe`.",
+    "",
+    "Команды: /start, /help",
+  ].join("\n");
+
+  await sendTelegramMessage(chatId, reply);
 }
 
-// ---------- HTTP endpoints ----------
+// ======================================================
+// 9. HTTP endpoints
+// ======================================================
 
 app.get("/", (req, res) => {
   res.send("Masquerade Engine is running.");
 });
 
-// ---------- public JSON API: /api/outfit ----------
-//
-// POST /api/outfit
-// {
-//   "image_base64": "<jpeg in base64>",
-//   "brief": "optional stylist text",
-//   "inspiration_mode": false
-// }
-//
-// Response 200:
-// {
-//   "mode": "OUTFIT_ONLY",
-//   "borealis": { "title": "...", "description": "...", "references": [...] },
-//   "image_base64": "<jpeg in base64 or null>"
-// }
-
+/**
+ * Public JSON API: /api/outfit
+ *
+ * POST /api/outfit
+ * {
+ *   "image_base64": "<jpeg in base64>",
+ *   "brief": "optional stylist text",
+ *   "inspiration_mode": false,
+ *   "format": "3x4 | 9x16 | 16x9" // optional, overrides aspect detection
+ * }
+ *
+ * Response 200:
+ * {
+ *   "mode": "OUTFIT_ONLY",
+ *   "borealis": { "title": "...", "description": "...", "references": [...] },
+ *   "image_base64": "<jpeg in base64 or null>"
+ * }
+ */
 app.post("/api/outfit", async (req, res) => {
   try {
-    const { image_base64, brief = "", inspiration_mode = false } = req.body || {};
+    const {
+      image_base64,
+      brief = "",
+      inspiration_mode = false,
+      format = null,
+    } = req.body || {};
 
     if (!image_base64) {
       return res.status(400).json({ error: "image_base64 is required" });
     }
 
     const buffer = Buffer.from(image_base64, "base64");
+    const aspectHintOverride = getAspectHintFromFormat(format);
 
     const { nbImageBuffer, borealis } = await runOutfitPipeline({
       buffer,
-      filePath: null,           // нет Telegram file_path, работаем как generic
+      filePath: null, // generic API, no Telegram URL
       brief,
       inspirationMode: !!inspiration_mode,
+      aspectHintOverride,
     });
 
     const outImageBase64 = nbImageBuffer
@@ -721,6 +845,9 @@ app.post("/api/outfit", async (req, res) => {
   }
 });
 
+/**
+ * Telegram webhook.
+ */
 app.post("/webhook", async (req, res) => {
   try {
     const update = req.body;
