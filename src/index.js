@@ -1,5 +1,5 @@
 // src/index.js
-// Masquerade / Borealis Engine v1.6
+// Masquerade / Borealis Engine v1.6.1
 
 import express from "express";
 import bodyParser from "body-parser";
@@ -200,22 +200,19 @@ function getAspectHintFromFormat(format) {
 }
 
 // ======================================================
-// 3. Nano Banana (Gemini 2.5 Flash Image) engine
+// 3. Gemini image engines (Nano Banana + Gemini 3)
 // ======================================================
 
-async function generateNanoBananaImage(buffer, briefText = "", options = {}) {
-  if (!VERTEX_API_KEY) {
-    console.warn("VERTEX_API_KEY is missing, skipping Nano Banana");
-    return null;
-  }
-
-  // options: { inspirationMode?: boolean, aspectHintOverride?: string | null }
+/**
+ * Общий билдер промпта и payload для Gemini-изображений.
+ * Используется и Nano Banana, и Gemini-3.
+ */
+function buildGeminiImagePayload(buffer, briefText = "", options = {}) {
   const { inspirationMode = false, aspectHintOverride = null } = options;
 
   const base64 = buffer.toString("base64");
   const brief = (briefText || "").trim();
 
-  // финальный хинт: либо явный override, либо из брифа
   const aspectHint =
     aspectHintOverride != null
       ? aspectHintOverride
@@ -237,7 +234,7 @@ ABSOLUTE CONSTRAINTS (MANDATORY):
 - DO NOT stylize, redesign, or reinterpret the items.
 - Every garment MUST appear exactly as in the collage.
 - No smoothing, redesigning, stylization, or reshaping of clothing.
-  `;
+`;
 
   const baseInstruction = inspirationMode
     ? `You are a fashion concept engine.
@@ -300,9 +297,18 @@ ${absoluteConstraints}`;
     ],
   };
 
+  return body;
+}
+
+async function callGeminiImageAPI(modelId, body) {
+  if (!VERTEX_API_KEY) {
+    console.warn("VERTEX_API_KEY is missing, skipping Gemini image call");
+    return null;
+  }
+
   const url =
     "https://aiplatform.googleapis.com/v1/" +
-    "publishers/google/models/gemini-2.5-flash-image:generateContent" +
+    `publishers/google/models/${modelId}:generateContent` +
     `?key=${VERTEX_API_KEY}`;
 
   const resp = await axios.post(url, body, {
@@ -323,12 +329,27 @@ ${absoluteConstraints}`;
 
   const inline = findInlineData(resp.data);
   if (!inline?.data) {
-    console.error("Nano Banana response without inline_data:", resp.data);
-    throw new Error("No Base64 image in Nano Banana response");
+    console.error("Gemini image response without inline_data:", resp.data);
+    throw new Error("No Base64 image in Gemini image response");
   }
 
-  console.log("🟡 Nano Banana (Gemini 2.5 Flash Image) generated");
   return Buffer.from(inline.data, "base64");
+}
+
+// Default engine: Nano Banana (gemini-2.5-flash-image)
+async function generateNanoBananaImage(buffer, briefText = "", options = {}) {
+  const body = buildGeminiImagePayload(buffer, briefText, options);
+  const buf = await callGeminiImageAPI("gemini-2.5-flash-image", body);
+  console.log("🟡 Nano Banana (Gemini 2.5 Flash Image) generated");
+  return buf;
+}
+
+// Experimental engine: Gemini-3 Pro Image Preview
+async function generateGemini3Image(buffer, briefText = "", options = {}) {
+  const body = buildGeminiImagePayload(buffer, briefText, options);
+  const buf = await callGeminiImageAPI("gemini-3-pro-image-preview", body);
+  console.log("🔵 Gemini 3 Pro Image generated");
+  return buf;
 }
 
 // ======================================================
@@ -631,7 +652,7 @@ function detectMode(message) {
 }
 
 // ======================================================
-// 7. Core pipeline: buffer -> NanoBanana + Borealis
+// 7. Core pipeline: buffer -> Gemini image + Borealis
 // ======================================================
 
 async function runOutfitPipeline({
@@ -640,15 +661,27 @@ async function runOutfitPipeline({
   brief = "",
   inspirationMode = false,
   aspectHintOverride = null,
+  engine = "nano", // "nano" | "g3"
 }) {
-  // 1) Nano Banana — визуал
-  const nbImageBuffer = await generateNanoBananaImage(buffer, brief, {
-    inspirationMode,
-    aspectHintOverride,
-  }).catch((err) => {
-    console.error("Nano Banana error:", err?.response?.data || err);
-    return null;
-  });
+  // 1) Gemini image — визуал
+  let nbImageBuffer = null;
+
+  try {
+    if (engine === "g3") {
+      nbImageBuffer = await generateGemini3Image(buffer, brief, {
+        inspirationMode,
+        aspectHintOverride,
+      });
+    } else {
+      nbImageBuffer = await generateNanoBananaImage(buffer, brief, {
+        inspirationMode,
+        aspectHintOverride,
+      });
+    }
+  } catch (err) {
+    console.error("Gemini image error:", err?.response?.data || err);
+    nbImageBuffer = null;
+  }
 
   // 2) Borealis — описание
   const imageBase64 = !filePath && buffer ? buffer.toString("base64") : null;
@@ -684,8 +717,26 @@ async function handleOutfitOnly(message) {
     lower.includes("#inspire") ||
     lower.includes("!vibe");
 
+  // engine flags
+  const wantGemini3 =
+    lower.includes("!g3") ||
+    lower.includes("!gemini3") ||
+    lower.includes("#g3") ||
+    lower.includes("gemini 3");
+
+  const forceFlash = lower.includes("!flash") || lower.includes("!nano");
+
+  let engine = "nano";
+  if (wantGemini3 && !forceFlash) {
+    engine = "g3";
+  }
+
   // clean brief from flags
-  const brief = rawCaption.replace(/!inspire|#inspire|!vibe/gi, "").trim();
+  const brief = rawCaption
+    .replace(/!inspire|#inspire|!vibe/gi, "")
+    .replace(/!g3|!gemini3|#g3|gemini 3/gi, "")
+    .replace(/!flash|!nano/gi, "")
+    .trim();
 
   // 1) get photo
   const { filePath, buffer } = await downloadTelegramPhoto(message);
@@ -697,12 +748,18 @@ async function handleOutfitOnly(message) {
     brief,
     inspirationMode,
     aspectHintOverride: null, // Telegram → формат из брифа / дефолт
+    engine,
   });
 
-  const captionText = formatBorealisMessage(
-    inspirationMode ? "Inspiration moodboard." : "Outfit / Collage.",
-    borealis
-  );
+  const modeLabelBase = inspirationMode
+    ? "Inspiration moodboard."
+    : "Outfit / Collage.";
+  const modeLabel =
+    engine === "g3"
+      ? `${modeLabelBase} Engine: Gemini-3.`
+      : `${modeLabelBase} Engine: Nano Banana.`;
+
+  const captionText = formatBorealisMessage(modeLabel, borealis);
 
   if (nbImageBuffer) {
     await sendTelegramPhoto(chatId, nbImageBuffer, captionText);
@@ -718,10 +775,10 @@ async function handleModelWaitingItems(message) {
     "*Mode:* Model only.",
     "",
     "Я принял модель.",
-    "Сейчас режим `model` работает как подготовка: я запоминаю, что это именно модель.",
+    "Сейчас режим `!model` работает как подготовка: я запоминаю, что это именно модель.",
     "Пока гардероб всё равно читается из следующего коллажа / фото вещей.",
     "",
-    "Следующий шаг в roadmap — научить Masquerade гибридному режиму:",
+    "Следующий шаг в roadmap — гибрид:",
     "отдельно модель + отдельно коллаж вещей → один собранный лук.",
   ].join("\n");
 
@@ -751,16 +808,20 @@ async function handleTextOnly(message) {
       "*Режимы:*",
       "• без тегов — считаю, что это коллаж вещей.",
       "• `!inspire` / `!vibe` — картинка как moodboard, я придумываю look по мотивам.",
-      "• `!model` — это просто модель, вещи пришли отдельно (режим «жду гардероб»).",
+      "• `!model` — это просто модель, вещи придут отдельно (режим «жду гардероб»).",
+      "",
+      "*Движок картинки:*",
+      "• по умолчанию — Nano Banana (быстро, дешево).",
+      "• добавить `!g3` — пробую Gemini-3 Pro Image.",
+      "• добавить `!flash` или `!nano` — принудительно Nano Banana.",
       "",
       "Формат кадра можно подсказать в тексте брифа: `3x4`, `9x16` или `16x9`.",
     ].join("\n");
 
     await sendTelegramMessage(chatId, reply);
     return;
-  }
-
-  if (text.startsWith("/help")) {
+ }
+    if (text.startsWith("/help")) {
     const reply = [
       "Masquerade — fashion-intelligence engine.",
       "",
@@ -772,6 +833,11 @@ async function handleTextOnly(message) {
       "*Теги режимов:*",
       "• `!inspire` или `!vibe` — картинка как moodboard, я собираю look по мотивам.",
       "• `!model` — фото модели отдельно, гардероб придёт следующими картинками (roadmap-фича).",
+      "",
+      "*Теги движка:*",
+      "• без тегов — Nano Banana (gemini-2.5-flash-image).",
+      "• `!g3` / `!gemini3` — Gemini-3 Pro Image Preview.",
+      "• `!flash` / `!nano` — вернуться к Nano Banana.",
       "",
       "Формат кадра можно указать в брифе: `3x4`, `9x16`, `16x9`.",
       "",
@@ -838,12 +904,14 @@ app.get("/", (req, res) => {
  *   "image_base64": "<jpeg in base64>",
  *   "brief": "optional stylist text",
  *   "inspiration_mode": false,
- *   "format": "3x4 | 9x16 | 16x9" // optional, overrides aspect detection
+ *   "format": "3x4 | 9x16 | 16x9", // optional, overrides aspect detection
+ *   "engine": "nano" | "g3"       // optional, default "nano"
  * }
  *
  * Response 200:
  * {
  *   "mode": "OUTFIT_ONLY",
+ *   "engine": "nano" | "g3",
  *   "borealis": { "title": "...", "description": "...", "references": [...] },
  *   "image_base64": "<jpeg in base64 or null>"
  * }
@@ -855,6 +923,7 @@ app.post("/api/outfit", async (req, res) => {
       brief = "",
       inspiration_mode = false,
       format = null,
+      engine = "nano",
     } = req.body || {};
 
     if (!image_base64) {
@@ -864,12 +933,20 @@ app.post("/api/outfit", async (req, res) => {
     const buffer = Buffer.from(image_base64, "base64");
     const aspectHintOverride = getAspectHintFromFormat(format);
 
+    // нормализуем engine
+    let engineNormalized = "nano";
+    const engineStr = String(engine || "").toLowerCase();
+    if (["g3", "gemini3", "gemini-3"].includes(engineStr)) {
+      engineNormalized = "g3";
+    }
+
     const { nbImageBuffer, borealis } = await runOutfitPipeline({
       buffer,
       filePath: null, // generic API, no Telegram URL
       brief,
       inspirationMode: !!inspiration_mode,
       aspectHintOverride,
+      engine: engineNormalized,
     });
 
     const outImageBase64 = nbImageBuffer
@@ -878,6 +955,7 @@ app.post("/api/outfit", async (req, res) => {
 
     return res.json({
       mode: "OUTFIT_ONLY",
+      engine: engineNormalized,
       borealis,
       image_base64: outImageBase64,
     });
