@@ -975,14 +975,17 @@ app.post("/api/outfit", async (req, res) => {
     outfitInput = addImageToOutfitInput(outfitInput, buffer);
     outfitInput = attachBrief(outfitInput, brief);
 
-    const { nbImageBuffer, borealis } = await runOutfitPipelineFromOutfitInput({
+    const { nbImageBuffer, borealis } = await runOutfitPipelineFromOutfitInput(
       outfitInput,
-      inspirationMode: !!inspiration_mode,
-      aspectHintOverride,
-      engine: engineNormalized,
-      chatId: "api",
-      runOutfitPipeline,
-    });
+      {
+        inspirationMode: !!inspiration_mode,
+        aspectHintOverride,
+        engine: engineNormalized,
+        chatId: "api",
+        downloadTelegramPhoto: null,
+        runOutfitPipeline,
+      }
+    );
 
     const outImageBase64 = nbImageBuffer
       ? nbImageBuffer.toString("base64")
