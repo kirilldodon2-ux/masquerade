@@ -104,7 +104,7 @@ All values stored via Secret Manager (auto-mounted into Cloud Run).
 
 ```
 
-# Roadmap
+# Roadmap (more in /docs)
 	•	Language switcher /language (EN / FR / RU / RO / JP / CN)
 	•	/settings panel
 	•	Promo codes for free generations
