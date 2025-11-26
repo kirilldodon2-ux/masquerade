@@ -741,17 +741,23 @@ async function processBufferedOutfitInput({ chatId, text, photos }) {
     }
   );
 
-const { nbImageBuffer, borealis } = await runOutfitPipelineFromOutfitInput(
-  outfitInput,
-  {
-    inspirationMode,
-    aspectHintOverride: null, // Telegram → формат из брифа / дефолт
-    engine,
+  console.log("🧺 Buffered input", {
     chatId,
-    downloadTelegramPhoto,
-    runOutfitPipeline,
-  }
-);
+    photos: photos.length,
+    brief: (text || "").slice(0, 80),
+  });
+
+  const { nbImageBuffer, borealis } = await runOutfitPipelineFromOutfitInput(
+    outfitInput,
+    {
+      inspirationMode,
+      aspectHintOverride: null, // Telegram → формат из брифа / дефолт
+      engine,
+      chatId,
+      downloadTelegramPhoto,
+      runOutfitPipeline,
+    }
+  );
 
   const modeLabelBase = inspirationMode
     ? "Inspiration moodboard."
@@ -775,6 +781,7 @@ const { nbImageBuffer, borealis } = await runOutfitPipelineFromOutfitInput(
 async function handleOutfitOnly(message) {
   const chatId = message.chat.id;
   const bestPhoto = getBestPhotoVariant(message.photo);
+  const hadBuffered = (telegramImageBuffer.get(chatId) || []).length > 0;
 
   if (bestPhoto) {
     appendPhotoToBuffer(chatId, bestPhoto);
@@ -792,10 +799,12 @@ async function handleOutfitOnly(message) {
     return;
   }
 
-  await sendTelegramMessage(
-    chatId,
-    "📸 Сохранил фото. Пришли ещё (до 6) и текстовый бриф — соберём образ."
-  );
+  if (!hadBuffered) {
+    await sendTelegramMessage(
+      chatId,
+      "📸 Сохранил фото. Пришли ещё (до 6) и текстовый бриф — соберём образ."
+    );
+  }
 }
 
 /**
@@ -806,7 +815,7 @@ async function handleTextOnly(message) {
   const chatId = message.chat.id;
   const text = message.text || "";
 
-  // --- commands ---
+  // --- commands (do not treat as text-only generation) ---
 
   if (text.startsWith("/start")) {
     const reply = [
@@ -892,7 +901,7 @@ async function handleTextOnly(message) {
     return;
   }
 
-  // --- buffered multi-image flow ---
+  // --- skip text-only if there is a buffered multi-image flow ---
 
   const bufferedPhotos = consumeBufferedPhotos(chatId);
   if (bufferedPhotos.length > 0) {
@@ -904,19 +913,24 @@ async function handleTextOnly(message) {
     return;
   }
 
-  // --- default: no image → honestly ask for image ---
+  // --- text-only Borealis generation ---
 
-  const reply = [
-    "Я жду изображение, чтобы собрать образ. 🌫",
-    "",
-    "Отправь:",
-    "• коллаж с вещами + бриф,",
-    "• или вдохновляющую картинку + `!inspire` / `!vibe`.",
-    "",
-    "Команды: /start, /help",
-  ].join("\n");
+  try {
+    const borealis = await generateBorealisDescription({
+      filePath: null,
+      briefText: text,
+      imageBase64: null,
+    });
 
-  await sendTelegramMessage(chatId, reply);
+    const reply = formatBorealisMessage("Text-only brief.", borealis);
+    await sendTelegramMessage(chatId, reply);
+  } catch (err) {
+    console.error("Borealis text-only error:", err?.response?.data || err);
+    await sendTelegramMessage(
+      chatId,
+      "Не удалось обработать текстовый бриф через Borealis."
+    );
+  }
 }
 
 // ======================================================
@@ -1028,17 +1042,12 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    const mode = detectMode(message);
-    console.log("🔎 Detected mode:", mode);
+    const hasPhoto = Boolean(message.photo && message.photo.length);
 
-    switch (mode) {
-      case "OUTFIT_ONLY":
-        await handleOutfitOnly(message);
-        break;
-      case "TEXT_ONLY":
-      default:
-        await handleTextOnly(message);
-        break;
+    if (hasPhoto) {
+      await handleOutfitOnly(message);
+    } else {
+      await handleTextOnly(message);
     }
 
     res.sendStatus(200);
