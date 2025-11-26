@@ -741,15 +741,17 @@ async function processBufferedOutfitInput({ chatId, text, photos }) {
     }
   );
 
-  const { nbImageBuffer, borealis } = await runOutfitPipelineFromOutfitInput({
-    outfitInput,
+const { nbImageBuffer, borealis } = await runOutfitPipelineFromOutfitInput(
+  outfitInput,
+  {
     inspirationMode,
     aspectHintOverride: null, // Telegram → формат из брифа / дефолт
     engine,
     chatId,
     downloadTelegramPhoto,
     runOutfitPipeline,
-  });
+  }
+);
 
   const modeLabelBase = inspirationMode
     ? "Inspiration moodboard."
