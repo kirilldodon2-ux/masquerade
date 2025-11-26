@@ -5,6 +5,15 @@ import express from "express";
 import bodyParser from "body-parser";
 import axios from "axios";
 import FormData from "form-data";
+import {
+  buildOutfitInputFromTelegram,
+  runOutfitPipelineFromOutfitInput,
+} from "./core/outfit-pipeline.js";
+import {
+  createEmptyOutfitInput,
+  addImageToOutfitInput,
+  attachBrief,
+} from "./core/outfit-input.js";
 
 const app = express();
 app.use(bodyParser.json());
@@ -15,6 +24,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const VERTEX_API_KEY = process.env.VERTEX_API_KEY;
 
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
+const telegramImageBuffer = new Map();
 
 // ----------- basic sanity logs -----------
 
@@ -130,7 +140,34 @@ async function downloadTelegramPhoto(message) {
 }
 
 // ======================================================
-// 2. Aspect ratio helpers (3×4 / 9×16 / 16×9)
+// 2. Telegram image buffer (multi-image)
+// ======================================================
+
+function getBestPhotoVariant(photos = []) {
+  if (!Array.isArray(photos) || photos.length === 0) return null;
+  return photos[photos.length - 1];
+}
+
+function appendPhotoToBuffer(chatId, photo) {
+  if (!chatId || !photo) return;
+  const existing = telegramImageBuffer.get(chatId) || [];
+  telegramImageBuffer.set(chatId, [...existing, photo]);
+}
+
+function consumeBufferedPhotos(chatId) {
+  if (!chatId) return [];
+  const photos = telegramImageBuffer.get(chatId) || [];
+  telegramImageBuffer.delete(chatId);
+  return photos;
+}
+
+function clearBufferedPhotos(chatId) {
+  if (!chatId) return;
+  telegramImageBuffer.delete(chatId);
+}
+
+// ======================================================
+// 3. Aspect ratio helpers (3×4 / 9×16 / 16×9)
 // ======================================================
 
 const DEFAULT_ASPECT_HINT = "vertical 3:4, high resolution";
@@ -200,7 +237,7 @@ function getAspectHintFromFormat(format) {
 }
 
 // ======================================================
-// 3. Gemini image engines (Nano Banana + Gemini 3)
+// 4. Gemini image engines (Nano Banana + Gemini 3)
 // ======================================================
 
 /**
@@ -353,7 +390,7 @@ async function generateGemini3Image(buffer, briefText = "", options = {}) {
 }
 
 // ======================================================
-// 4. Borealis description (OpenAI Responses)
+// 5. Borealis description (OpenAI Responses)
 // ======================================================
 
 async function generateBorealisDescription({
@@ -566,7 +603,7 @@ ${briefBlock}
 }
 
 // ======================================================
-// 5. Formatting for Telegram
+// 6. Formatting for Telegram
 // ======================================================
 
 function formatBorealisMessage(modeLabel, borealis) {
@@ -617,34 +654,14 @@ function formatBorealisMessage(modeLabel, borealis) {
 }
 
 // ======================================================
-// 6. Mode detection
+// 7. Mode detection
 // ======================================================
 
 function detectMode(message) {
   const hasPhoto = Boolean(message.photo && message.photo.length);
-  const text = (message.caption || message.text || "").toLowerCase();
-
-  const modelOnlyHints = [
-    "просто модель",
-    "только модель",
-    "just model",
-    "face only",
-    "!model",
-    "#model",
-    "model only",
-    "mode: model",
-  ];
-
-  const containsModelOnlyHint = modelOnlyHints.some((h) =>
-    text.includes(h)
-  );
 
   if (!hasPhoto) {
     return "TEXT_ONLY";
-  }
-
-  if (containsModelOnlyHint) {
-    return "MODEL_WAITING_ITEMS";
   }
 
   // По умолчанию — считаем, что это коллаж / аутфит
@@ -652,7 +669,7 @@ function detectMode(message) {
 }
 
 // ======================================================
-// 7. Core pipeline: buffer -> Gemini image + Borealis
+// 8. Core pipeline: buffer -> Gemini image + Borealis
 // ======================================================
 
 async function runOutfitPipeline({
@@ -662,25 +679,32 @@ async function runOutfitPipeline({
   inspirationMode = false,
   aspectHintOverride = null,
   engine = "nano", // "nano" | "g3"
+  imageContextHint = "",
+  parsedOutfit = null,
 }) {
   // 1) Gemini image — визуал
   let nbImageBuffer = null;
+  const briefForImage = imageContextHint
+    ? `${brief || ""}\n\n${imageContextHint}`.trim()
+    : brief;
 
-  try {
-    if (engine === "g3") {
-      nbImageBuffer = await generateGemini3Image(buffer, brief, {
-        inspirationMode,
-        aspectHintOverride,
-      });
-    } else {
-      nbImageBuffer = await generateNanoBananaImage(buffer, brief, {
-        inspirationMode,
-        aspectHintOverride,
-      });
+  if (buffer) {
+    try {
+      if (engine === "g3") {
+        nbImageBuffer = await generateGemini3Image(buffer, briefForImage, {
+          inspirationMode,
+          aspectHintOverride,
+        });
+      } else {
+        nbImageBuffer = await generateNanoBananaImage(buffer, briefForImage, {
+          inspirationMode,
+          aspectHintOverride,
+        });
+      }
+    } catch (err) {
+      console.error("Gemini image error:", err?.response?.data || err);
+      nbImageBuffer = null;
     }
-  } catch (err) {
-    console.error("Gemini image error:", err?.response?.data || err);
-    nbImageBuffer = null;
   }
 
   // 2) Borealis — описание
@@ -703,52 +727,28 @@ async function runOutfitPipeline({
 }
 
 // ======================================================
-// 8. Telegram handlers
+// 9. Telegram handlers
 // ======================================================
 
-async function handleOutfitOnly(message) {
-  const chatId = message.chat.id;
-  const rawCaption = message.caption || message.text || "";
-  const lower = rawCaption.toLowerCase();
+async function processBufferedOutfitInput({ chatId, text, photos }) {
+  if (!photos || photos.length === 0) return false;
 
-  // explicit inspiration flag
-  const inspirationMode =
-    lower.includes("!inspire") ||
-    lower.includes("#inspire") ||
-    lower.includes("!vibe");
+  const { outfitInput, inspirationMode, engine } = buildOutfitInputFromTelegram(
+    {
+      chatId,
+      images: photos,
+      text,
+    }
+  );
 
-  // engine flags
-  const wantGemini3 =
-    lower.includes("!g3") ||
-    lower.includes("!gemini3") ||
-    lower.includes("#g3") ||
-    lower.includes("gemini 3");
-
-  const forceFlash = lower.includes("!flash") || lower.includes("!nano");
-
-  let engine = "nano";
-  if (wantGemini3 && !forceFlash) {
-    engine = "g3";
-  }
-
-  // clean brief from flags
-  const brief = rawCaption
-    .replace(/!inspire|#inspire|!vibe/gi, "")
-    .replace(/!g3|!gemini3|#g3|gemini 3/gi, "")
-    .replace(/!flash|!nano/gi, "")
-    .trim();
-
-  // 1) get photo
-  const { filePath, buffer } = await downloadTelegramPhoto(message);
-
-  // 2) run engine
-  const { nbImageBuffer, borealis } = await runOutfitPipeline({
-    buffer,
-    filePath,
-    brief,
+  const { nbImageBuffer, borealis } = await runOutfitPipelineFromOutfitInput({
+    outfitInput,
     inspirationMode,
     aspectHintOverride: null, // Telegram → формат из брифа / дефолт
     engine,
+    chatId,
+    downloadTelegramPhoto,
+    runOutfitPipeline,
   });
 
   const modeLabelBase = inspirationMode
@@ -766,23 +766,34 @@ async function handleOutfitOnly(message) {
   } else {
     await sendTelegramMessage(chatId, captionText);
   }
+
+  return true;
 }
 
-async function handleModelWaitingItems(message) {
+async function handleOutfitOnly(message) {
   const chatId = message.chat.id;
+  const bestPhoto = getBestPhotoVariant(message.photo);
 
-  const reply = [
-    "*Mode:* Model only.",
-    "",
-    "Я принял модель.",
-    "Сейчас режим `!model` работает как подготовка: я запоминаю, что это именно модель.",
-    "Пока гардероб всё равно читается из следующего коллажа / фото вещей.",
-    "",
-    "Следующий шаг в roadmap — гибрид:",
-    "отдельно модель + отдельно коллаж вещей → один собранный лук.",
-  ].join("\n");
+  if (bestPhoto) {
+    appendPhotoToBuffer(chatId, bestPhoto);
+  }
 
-  await sendTelegramMessage(chatId, reply);
+  const rawCaption = message.caption || message.text || "";
+
+  if (rawCaption.trim()) {
+    const bufferedPhotos = consumeBufferedPhotos(chatId);
+    await processBufferedOutfitInput({
+      chatId,
+      text: rawCaption,
+      photos: bufferedPhotos,
+    });
+    return;
+  }
+
+  await sendTelegramMessage(
+    chatId,
+    "📸 Сохранил фото. Пришли ещё (до 6) и текстовый бриф — соберём образ."
+  );
 }
 
 /**
@@ -799,40 +810,43 @@ async function handleTextOnly(message) {
     const reply = [
       "🧥 *Borealis Masquerade онлайн.*",
       "",
-      "Я работаю с изображениями и собираю цельные образы.",
+      "Я собираю цельные образы из нескольких фото и короткого брифа.",
       "",
       "*Базовый флоу*:",
-      "• пришли коллаж на белом фоне или несколько фото вещей + короткий бриф (vibe / история),",
-      "• получишь готовый аутфит (модель + лук) и Borealis-описание.",
+      "1) пришли 2–6 фото вещей (коллаж или отдельные кадры),",
+      "2) потом пришли короткий текстовый бриф (vibe / история),",
+      "3) я соберу один лук + Borealis-описание.",
       "",
       "*Режимы:*",
       "• без тегов — считаю, что это коллаж вещей.",
       "• `!inspire` / `!vibe` — картинка как moodboard, я придумываю look по мотивам.",
-      "• `!model` — это просто модель, вещи придут отдельно (режим «жду гардероб»).",
       "",
       "*Движок картинки:*",
       "• по умолчанию — Nano Banana (быстро, дешево).",
-      "• добавить `!g3` — пробую Gemini-3 Pro Image.",
+      "• добавить `!g3` — Gemini-3 Pro Image Preview.",
       "• добавить `!flash` или `!nano` — принудительно Nano Banana.",
       "",
       "Формат кадра можно подсказать в тексте брифа: `3x4`, `9x16` или `16x9`.",
+      "",
+      "Команды: /help, /clear (сбросить буфер фото).",
+      "Тег `!model` больше не нужен — просто пришли фото вещей + бриф.",
     ].join("\n");
 
     await sendTelegramMessage(chatId, reply);
     return;
- }
-    if (text.startsWith("/help")) {
+  }
+
+  if (text.startsWith("/help")) {
     const reply = [
       "Masquerade — fashion-intelligence engine.",
       "",
       "*Как со мной работать:*",
-      "1) Пришли коллаж / фото вещей на нейтральном фоне.",
-      "2) Добавь пару строк про настроение и контекст.",
-      "3) Получи собранный аутфит, визуал и Borealis-описание.",
+      "1) Пришли 2–6 фото вещей (коллаж или отдельные кадры).",
+      "2) Потом пришли короткий текстовый бриф (vibe / история).",
+      "3) Я соберу один лук, визуал и Borealis-описание.",
       "",
       "*Теги режимов:*",
       "• `!inspire` или `!vibe` — картинка как moodboard, я собираю look по мотивам.",
-      "• `!model` — фото модели отдельно, гардероб придёт следующими картинками (roadmap-фича).",
       "",
       "*Теги движка:*",
       "• без тегов — Nano Banana (gemini-2.5-flash-image).",
@@ -840,6 +854,9 @@ async function handleTextOnly(message) {
       "• `!flash` / `!nano` — вернуться к Nano Banana.",
       "",
       "Формат кадра можно указать в брифе: `3x4`, `9x16`, `16x9`.",
+      "",
+      "Команды: /clear (сбросить буфер фото).",
+      "Тег `!model` больше не нужен — просто присылай фото вещей + бриф.",
       "",
       "Dev-команда: `/borealis текст` — чисто текстовый запуск Borealis без картинки.",
     ].join("\n");
@@ -873,6 +890,18 @@ async function handleTextOnly(message) {
     return;
   }
 
+  // --- buffered multi-image flow ---
+
+  const bufferedPhotos = consumeBufferedPhotos(chatId);
+  if (bufferedPhotos.length > 0) {
+    await processBufferedOutfitInput({
+      chatId,
+      text,
+      photos: bufferedPhotos,
+    });
+    return;
+  }
+
   // --- default: no image → honestly ask for image ---
 
   const reply = [
@@ -889,7 +918,7 @@ async function handleTextOnly(message) {
 }
 
 // ======================================================
-// 9. HTTP endpoints
+// 10. HTTP endpoints
 // ======================================================
 
 app.get("/", (req, res) => {
@@ -940,13 +969,17 @@ app.post("/api/outfit", async (req, res) => {
       engineNormalized = "g3";
     }
 
-    const { nbImageBuffer, borealis } = await runOutfitPipeline({
-      buffer,
-      filePath: null, // generic API, no Telegram URL
-      brief,
+    let outfitInput = createEmptyOutfitInput();
+    outfitInput = addImageToOutfitInput(outfitInput, buffer);
+    outfitInput = attachBrief(outfitInput, brief);
+
+    const { nbImageBuffer, borealis } = await runOutfitPipelineFromOutfitInput({
+      outfitInput,
       inspirationMode: !!inspiration_mode,
       aspectHintOverride,
       engine: engineNormalized,
+      chatId: "api",
+      runOutfitPipeline,
     });
 
     const outImageBase64 = nbImageBuffer
@@ -979,15 +1012,23 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
+    const chatId = message.chat?.id;
+    const textOrCaption = (message.text || message.caption || "").trim();
+    if (textOrCaption.startsWith("/clear")) {
+      clearBufferedPhotos(chatId);
+      await sendTelegramMessage(
+        chatId,
+        "Buffer cleared. Send new photos + text to start a fresh look."
+      );
+      return res.sendStatus(200);
+    }
+
     const mode = detectMode(message);
     console.log("🔎 Detected mode:", mode);
 
     switch (mode) {
       case "OUTFIT_ONLY":
         await handleOutfitOnly(message);
-        break;
-      case "MODEL_WAITING_ITEMS":
-        await handleModelWaitingItems(message);
         break;
       case "TEXT_ONLY":
       default:
