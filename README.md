@@ -116,20 +116,22 @@ All values stored via Secret Manager (auto-mounted into Cloud Run).
 
 # License
 
-Masquerade Engine — Source-Available License
-Copyright (c) 2025 Kirill Dodon — All Rights Reserved
+Masquerade Engine — MIT License
+Copyright (c) 2025 Borealis Labs (Kirill Dodon)
 
-This repository is source-available.
-The code is provided for reading and research purposes only.
+This project is open-source under the MIT license.
+You are free to:
+	•	use the code in personal and commercial projects,
+	•	modify, fork, and extend the engine,
+	•	deploy it for your own stylist/AI tools,
+	•	build plugins, extensions, or research prototypes.
 
-You are NOT allowed to:
-	•	use the code in any product or service,
-	•	modify, fork, or adapt any part of the code,
-	•	deploy or redistribute the engine,
-	•	use Masquerade for commercial purposes,
-	•	remove author attribution.
+You must:
+	•	keep the copyright notice,
+	•	include a copy of the MIT license in any distribution,
+	•	not imply endorsement by Borealis Labs.
 
-For commercial partnerships, licensing, or collaboration:
+For commercial collaborations, studio partnerships, or custom enterprise builds:
 hello@dodon.one
 
 # Credits
