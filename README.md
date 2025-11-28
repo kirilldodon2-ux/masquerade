@@ -117,7 +117,7 @@ All values stored via Secret Manager (auto-mounted into Cloud Run).
 # License
 
 Masquerade Engine — MIT License
-Copyright (c) 2025 Borealis Labs (Kirill Dodon)
+Copyright (c) 2025-presents Borealis Labs (Kirill Dodon)
 
 This project is open-source under the MIT license.
 You are free to:
