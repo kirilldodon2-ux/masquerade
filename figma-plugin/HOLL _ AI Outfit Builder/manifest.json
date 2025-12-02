@@ -1,0 +1,17 @@
+{
+  "name": "HÓLL — AI Outfit Builder",
+  "id": "holl-ai-outfit-builder",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "enableProposedApi": false,
+  "capabilities": [],
+  "networkAccess": {
+    "allowedDomains": [
+      "https://borealis-engine-322498453832.europe-west1.run.app",
+      "http://localhost:8080"
+    ]
+  }
+}
