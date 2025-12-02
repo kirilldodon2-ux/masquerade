@@ -10,8 +10,11 @@
   "capabilities": [],
   "networkAccess": {
     "allowedDomains": [
-      "https://borealis-engine-322498453832.europe-west1.run.app",
+      "https://borealis-engine-322498453832.europe-west1.run.app"
+    ],
+    "devAllowedDomains": [
       "http://localhost:8080"
-    ]
+    ],
+    "reasoning": "The plugin calls my Masquerade / HÓLL backend to generate AI outfits and descriptions."
   }
 }
