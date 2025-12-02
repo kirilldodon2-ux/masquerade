@@ -1,144 +1,130 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <title>HÓLL — AI Outfit Builder</title>
     <style>
-      * {
-        box-sizing: border-box;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
-          sans-serif;
-      }
-
       body {
         margin: 0;
         padding: 16px;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
         background: #050509;
-        color: #f5f5f7;
+        color: #f5f5f5;
       }
 
       h1 {
         font-size: 16px;
-        margin: 0 0 4px;
+        margin: 0 0 8px;
       }
 
-      .subtitle {
+      p.subtitle {
         font-size: 11px;
         opacity: 0.7;
-        margin-bottom: 12px;
+        margin: 0 0 16px;
       }
 
       label {
         font-size: 11px;
         display: block;
         margin-bottom: 4px;
-      }
-
-      textarea,
-      select {
-        width: 100%;
-        font-size: 11px;
-        padding: 8px;
-        border-radius: 8px;
-        border: 1px solid #333644;
-        background: #11131a;
-        color: #f5f5f7;
+        opacity: 0.85;
       }
 
       textarea {
+        width: 100%;
+        height: 80px;
         resize: vertical;
-        min-height: 64px;
-        max-height: 160px;
+        border-radius: 8px;
+        border: 1px solid #404040;
+        background: #101018;
+        color: #f5f5f5;
+        padding: 8px;
+        font-size: 11px;
+        box-sizing: border-box;
       }
 
       .row {
         display: flex;
         gap: 8px;
-        margin-top: 8px;
-      }
-
-      .row > div {
-        flex: 1;
+        margin-top: 12px;
       }
 
       .pill-group {
+        flex: 1;
         display: flex;
-        gap: 6px;
-        margin-top: 8px;
+        gap: 4px;
         flex-wrap: wrap;
       }
 
       .pill {
+        flex: 1;
+        min-width: 0;
         border-radius: 999px;
-        padding: 4px 10px;
-        font-size: 10px;
-        border: 1px solid #333644;
+        border: 1px solid #303040;
+        padding: 6px 10px;
+        font-size: 11px;
+        text-align: center;
+        background: #101018;
+        color: #d0d0e0;
         cursor: pointer;
-        background: #0b0d14;
+        user-select: none;
       }
 
       .pill.active {
-        background: linear-gradient(135deg, #9f7aea, #4fd1c5);
+        background: linear-gradient(90deg, #5af, #9f7bff);
         color: #050509;
         border-color: transparent;
-        font-weight: 600;
       }
 
-      button {
+      select {
         width: 100%;
-        margin-top: 14px;
-        padding: 8px 10px;
+        border-radius: 999px;
+        padding: 6px 10px;
+        border: 1px solid #303040;
+        background: #101018;
+        color: #d0d0e0;
+        font-size: 11px;
+      }
+
+      button.primary {
+        width: 100%;
+        margin-top: 16px;
         border-radius: 999px;
         border: none;
-        background: linear-gradient(135deg, #9f7aea, #4fd1c5);
-        color: #050509;
+        padding: 10px 12px;
         font-size: 12px;
-        font-weight: 600;
+        font-weight: 500;
+        background: linear-gradient(90deg, #5af, #9f7bff);
+        color: #050509;
         cursor: pointer;
       }
 
-      button[disabled] {
+      button.primary:disabled {
         opacity: 0.4;
         cursor: default;
       }
 
       .status {
-        margin-top: 8px;
+        margin-top: 6px;
         font-size: 10px;
         opacity: 0.8;
       }
 
       .status.error {
         color: #ff6b81;
-        opacity: 1;
       }
 
-      .borealis-block {
-        margin-top: 10px;
-        padding-top: 8px;
-        border-top: 1px solid #222432;
-        font-size: 10px;
-        max-height: 140px;
-        overflow: auto;
-      }
-
-      .borealis-title {
-        font-weight: 600;
-        margin-bottom: 4px;
-      }
-
-      .borealis-refs {
-        margin-top: 6px;
-        opacity: 0.8;
+      .status.ok {
+        color: #70ffb3;
       }
     </style>
   </head>
   <body>
     <h1>HÓLL — AI Outfit Builder</h1>
-    <div class="subtitle">
-      Select a collage frame in Figma → generate a ready outfit with Masquerade
-      engine.
-    </div>
+    <p class="subtitle">
+      Select a collage frame in Figma → generate a ready outfit with
+      Masquerade engine.
+    </p>
 
     <label for="brief">Stylist brief / vibe</label>
     <textarea
@@ -147,134 +133,94 @@
     ></textarea>
 
     <div class="row">
-      <div>
-        <label>Mode</label>
-        <div class="pill-group" id="mode-group">
-          <div class="pill active" data-value="outfit">Outfit from collage</div>
-          <div class="pill" data-value="inspire">Inspiration / moodboard</div>
-        </div>
+      <div class="pill-group" id="mode-group">
+        <div class="pill active" data-value="outfit">Outfit from collage</div>
+        <div class="pill" data-value="inspiration">Inspiration / moodboard</div>
       </div>
-      <div>
-        <label>Engine</label>
-        <div class="pill-group" id="engine-group">
-          <div class="pill active" data-value="nano">Nano Banana</div>
-          <div class="pill" data-value="g3">Gemini-3 Image</div>
-        </div>
+      <div class="pill-group" id="engine-group">
+        <div class="pill active" data-value="nano">Nano Banana</div>
+        <div class="pill" data-value="g3">Gemini-3 Image</div>
       </div>
     </div>
 
-    <div class="row">
-      <div>
-        <label for="format">Aspect</label>
-        <select id="format">
-          <option value="">Auto (3:4 by brief)</option>
-          <option value="3x4">3×4</option>
-          <option value="9x16">9×16 (stories)</option>
-          <option value="16x9">16×9 (landscape)</option>
-        </select>
-      </div>
+    <div style="margin-top: 12px">
+      <label for="aspect">Aspect</label>
+      <select id="aspect">
+        <option value="auto">Auto (3:4 by brief)</option>
+        <option value="3x4">3×4 vertical</option>
+        <option value="9x16">9×16 stories</option>
+        <option value="16x9">16×9 landscape</option>
+      </select>
     </div>
 
-    <button id="generate">Generate from selection</button>
-
-    <div id="status" class="status">Ready. Select a frame with your outfit.</div>
-
-    <div id="borealis" class="borealis-block" style="display:none;">
-      <div class="borealis-title" id="borealis-title"></div>
-      <div id="borealis-text"></div>
-      <div class="borealis-refs" id="borealis-refs"></div>
-    </div>
+    <button class="primary" id="run">Generate from selection</button>
+    <div class="status" id="status"></div>
 
     <script>
-      const button = document.getElementById("generate");
+      const briefEl = document.getElementById("brief");
+      const runBtn = document.getElementById("run");
       const statusEl = document.getElementById("status");
+      const aspectEl = document.getElementById("aspect");
 
-      const modeGroup = document.getElementById("mode-group");
-      const engineGroup = document.getElementById("engine-group");
+      let mode = "outfit"; // or "inspiration"
+      let engine = "nano"; // or "g3"
 
-      const borealisBlock = document.getElementById("borealis");
-      const borealisTitle = document.getElementById("borealis-title");
-      const borealisText = document.getElementById("borealis-text");
-      const borealisRefs = document.getElementById("borealis-refs");
+      function setStatus(text, kind) {
+        statusEl.textContent = text || "";
+        statusEl.className = "status";
+        if (kind === "error") statusEl.classList.add("error");
+        if (kind === "ok") statusEl.classList.add("ok");
+      }
 
-      function bindPills(groupEl, defaultValue) {
-        let value = defaultValue;
-
-        function updateActive() {
-          Array.from(groupEl.querySelectorAll(".pill")).forEach((el) => {
-            el.classList.toggle("active", el.dataset.value === value);
+      function wirePills(groupId, onChange) {
+        const group = document.getElementById(groupId);
+        const pills = Array.from(group.querySelectorAll(".pill"));
+        pills.forEach((pill) => {
+          pill.addEventListener("click", () => {
+            pills.forEach((p) => p.classList.remove("active"));
+            pill.classList.add("active");
+            onChange(pill.dataset.value);
           });
-        }
-
-        updateActive();
-
-        groupEl.addEventListener("click", (e) => {
-          const pill = e.target.closest(".pill");
-          if (!pill) return;
-          value = pill.dataset.value;
-          updateActive();
         });
-
-        return () => value;
       }
 
-      const getMode = bindPills(modeGroup, "outfit");
-      const getEngine = bindPills(engineGroup, "nano");
+      wirePills("mode-group", (value) => {
+        mode = value === "inspiration" ? "inspiration" : "outfit";
+      });
 
-      function setStatus(text, isError = false) {
-        statusEl.textContent = text;
-        statusEl.className = "status" + (isError ? " error" : "");
-      }
+      wirePills("engine-group", (value) => {
+        engine = value === "g3" ? "g3" : "nano";
+      });
 
-      button.onclick = () => {
-        const brief = document.getElementById("brief").value.trim();
-        const format = document.getElementById("format").value || null;
-        const mode = getMode();
-        const engine = getEngine();
+      runBtn.addEventListener("click", () => {
+        setStatus("Sending to Masquerade…", null);
+        runBtn.disabled = true;
 
-        button.disabled = true;
-        borealisBlock.style.display = "none";
-        setStatus("Exporting selection and calling Masquerade…");
+        const brief = briefEl.value.trim();
+        const aspectValue = aspectEl.value; // "auto" | "3x4" | "9x16" | "16x9"
 
-        parent.postMessage(
-          {
-            pluginMessage: {
-              type: "generate-from-selection",
-              payload: {
-                brief,
-                format,
-                inspiration_mode: mode === "inspire",
-                engine
-              }
-            }
-          },
-          "*"
-        );
-      };
+        const msg = {
+          type: "generate-outfit",
+          brief,
+          inspirationMode: mode === "inspiration",
+          engine,
+          aspect: aspectValue === "auto" ? null : aspectValue,
+        };
 
+        parent.postMessage({ pluginMessage: msg }, "*");
+      });
+
+      // receive status from main code
       window.onmessage = (event) => {
         const msg = event.data.pluginMessage;
         if (!msg) return;
 
-        if (msg.type === "done") {
-          setStatus("Look generated and placed on canvas.");
-          button.disabled = false;
-
-          if (msg.borealis) {
-            borealisTitle.textContent =
-              msg.borealis.title || "Готовый образ / Ready look";
-            borealisText.textContent = msg.borealis.description || "";
-            const refs = Array.isArray(msg.borealis.references)
-              ? msg.borealis.references
-              : [];
-            borealisRefs.textContent = refs.length
-              ? "References: " + refs.join(" • ")
-              : "";
-            borealisBlock.style.display = "block";
-          }
-        } else if (msg.type === "error") {
-          setStatus(msg.message || "Generation failed.", true);
-          button.disabled = false;
+        if (msg.type === "error") {
+          setStatus(msg.message || "Error", "error");
+          runBtn.disabled = false;
+        } else if (msg.type === "done") {
+          setStatus("Done. Outfit node created near your collage.", "ok");
+          runBtn.disabled = false;
         }
       };
     </script>
