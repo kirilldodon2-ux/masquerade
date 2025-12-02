@@ -16,6 +16,27 @@ import {
 } from "./core/outfit-input.js";
 
 const app = express();
+
+// ✅ CORS для Figma / браузера
+app.use((req, res, next) => {
+  // Разрешаем любые origin — нам ок, API приватное по URL/ключам
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  // Разрешённые методы
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  // Разрешённые заголовки
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization"
+  );
+
+  // Быстрый ответ на preflight, чтобы Figma/браузер не падали
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+
+  next();
+});
+
 app.use(bodyParser.json());
 
 const PORT = process.env.PORT || 8080;
