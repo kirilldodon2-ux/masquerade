@@ -679,49 +679,48 @@ function formatBorealisMessage(modeLabel, borealis) {
   const music = refs.slice(3, 5);
   const culture = refs.slice(5, 6);
 
-  const parts = [];
-
   const DIVIDER = "⎯⎯⎯⎯⎯⎯⦿⎯⎯⎯⎯⎯⎯";
 
+  // We keep everything максимально компактно: без пустых строк.
+  const lines = [];
+
   // 1) Technical header as quote
-  parts.push(`<blockquote>Mode: ${escapeHtml(modeLabel)}</blockquote>`);
+  lines.push(`<blockquote>Mode: ${escapeHtml(modeLabel)}</blockquote>`);
 
   // 2) Title
-  parts.push(`<b>${title}</b>`);
+  lines.push(`<b>${title}</b>`);
 
-  // 3) Description
+  // 3) Main description — always in quote (Telegram часто auto-collapses длинные цитаты)
   if (description) {
-    parts.push(description);
+    lines.push(`<blockquote>${description}</blockquote>`);
   }
 
-  // 4) References (no "References:" word)
-  const refParts = [];
+  // 4) References (compact, no "References:" label)
+  const refLines = [];
 
   if (fashion.length) {
-    refParts.push(`<b>Fashion</b>`);
-    fashion.forEach((r) => refParts.push(`• ${r}`));
+    refLines.push(`<b>Fashion</b>`);
+    fashion.forEach((r) => refLines.push(`• ${r}`));
   }
 
   if (music.length) {
-    if (refParts.length) refParts.push("");
-    refParts.push(`<b>Music</b>`);
-    music.forEach((r) => refParts.push(`• ${r}`));
+    refLines.push(`<b>Music</b>`);
+    music.forEach((r) => refLines.push(`• ${r}`));
   }
 
   if (culture.length) {
-    if (refParts.length) refParts.push("");
-    refParts.push(`<b>Culture</b>`);
-    culture.forEach((r) => refParts.push(`• ${r}`));
+    refLines.push(`<b>Culture</b>`);
+    culture.forEach((r) => refLines.push(`• ${r}`));
   }
 
-  if (refParts.length) {
-    // Divider between body and refs
-    parts.push(DIVIDER);
-    parts.push(refParts.join("\n"));
+  if (refLines.length) {
+    lines.push(DIVIDER);
+    // refs keep normal flow (not quote) so they stay visible even when description collapses
+    lines.push(refLines.join("\n"));
   }
 
-  // Join with blank lines between major blocks
-  return parts.filter(Boolean).join("\n\n");
+  // Single-newline join => no blank lines
+  return lines.filter(Boolean).join("\n");
 }
 
 // ======================================================
