@@ -1,5 +1,5 @@
 // src/index.js
-// Masquerade / Borealis Engine v1.6.1
+// Masquerade / Borealis Engine v1.6.2
 
 import express from "express";
 import bodyParser from "body-parser";
@@ -37,7 +37,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: "10mb" }));
 
 const PORT = process.env.PORT || 8080;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -46,6 +46,38 @@ const VERTEX_API_KEY = process.env.VERTEX_API_KEY;
 
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 const telegramImageBuffer = new Map();
+
+// ----------- webhook dedup + text clamp -----------
+
+const processedUpdates = new Map(); // key -> timestamp
+const DEDUP_TTL_MS = 5 * 60 * 1000;
+
+function isDuplicate(key) {
+  const now = Date.now();
+  // cleanup old keys
+  for (const [k, ts] of processedUpdates) {
+    if (now - ts > DEDUP_TTL_MS) processedUpdates.delete(k);
+  }
+  if (processedUpdates.has(key)) return true;
+  processedUpdates.set(key, now);
+  return false;
+}
+
+function clampText(text, maxLen) {
+  const t = String(text || "").trim();
+  if (t.length <= maxLen) return t;
+  const slice = t.slice(0, Math.max(0, maxLen - 1));
+  const cut = slice.lastIndexOf("\n");
+  return (cut > 200 ? slice.slice(0, cut) : slice) + "…";
+}
+
+function escapeHtml(text) {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;");
+}
 
 // ----------- basic sanity logs -----------
 
@@ -68,13 +100,18 @@ console.log("Masquerade booting…");
 // 1. Telegram helpers
 // ======================================================
 
+/**
+ * Send a Telegram message with HTML formatting and web page preview disabled by default.
+ * To override preview, pass { disable_web_page_preview: false } in extra.
+ */
 async function sendTelegramMessage(chatId, text, extra = {}) {
   if (!TELEGRAM_BOT_TOKEN) return;
 
   const payload = {
     chat_id: chatId,
     text,
-    parse_mode: "Markdown",
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
     ...extra,
   };
 
@@ -100,7 +137,7 @@ async function sendTelegramPhoto(chatId, imageBuffer, caption) {
     const form = new FormData();
     form.append("chat_id", String(chatId));
     form.append("caption", caption);
-    form.append("parse_mode", "Markdown");
+    form.append("parse_mode", "HTML");
     form.append("photo", imageBuffer, {
       filename: "outfit.jpg",
       contentType: "image/jpeg",
@@ -467,7 +504,7 @@ FORMAT OUTPUT (JSON ONLY):
 }
 
 RULES FOR DESCRIPTION:
-— 4–7 предложений, русский язык
+— 4–6 предложений, русский язык
 — не перечисляй предметы списком («куртка, брюки, шапка»)
 — не используй каталоговый язык как основную ось описания
 — не упоминай фото, ИИ, ботов, JSON, Telegram, нейросети
@@ -628,50 +665,63 @@ ${briefBlock}
 // ======================================================
 
 function formatBorealisMessage(modeLabel, borealis) {
-  const title = (borealis.title || "Готовый образ").trim();
-  const description = (borealis.description || "").trim();
-  const refs = Array.isArray(borealis.references)
-    ? borealis.references
-    : [];
+  const titleRaw = (borealis.title || "Готовый образ").trim();
+  const descRaw = (borealis.description || "").trim();
+  const refsRaw = Array.isArray(borealis.references) ? borealis.references : [];
 
-  const fashion = refs.slice(0, 3).filter(Boolean);
-  const music = refs.slice(3, 5).filter(Boolean);
-  const culture = refs.slice(5, 6).filter(Boolean);
+  const title = escapeHtml(titleRaw);
+  const description = escapeHtml(descRaw);
+  const refs = refsRaw
+    .filter((r) => typeof r === "string" && r.trim())
+    .map((r) => escapeHtml(r.trim()));
 
-  const lines = [];
+  const fashion = refs.slice(0, 3);
+  const music = refs.slice(3, 5);
+  const culture = refs.slice(5, 6);
 
-  // header
-  lines.push(`> Mode: ${modeLabel}`);
-  lines.push("");
-  lines.push(`*${title}*`);
-  lines.push("");
+  const parts = [];
+
+  const DIVIDER = "⎯⎯⎯⎯⎯⎯⦿⎯⎯⎯⎯⎯⎯";
+
+  // 1) Technical header as quote
+  parts.push(`<blockquote>Mode: ${escapeHtml(modeLabel)}</blockquote>`);
+
+  // 2) Title
+  parts.push(`<b>${title}</b>`);
+
+  // 3) Description
   if (description) {
-    lines.push(description);
+    parts.push(description);
   }
 
-  if (refs.length > 0) {
-    lines.push("");
-    lines.push("_References:_");
+  // 4) References (no "References:" word)
+  const refParts = [];
 
-    if (fashion.length) {
-      lines.push("*Fashion:*");
-      fashion.forEach((r) => lines.push(`• ${r}`));
-    }
-
-    if (music.length) {
-      lines.push("");
-      lines.push("*Music:*");
-      music.forEach((r) => lines.push(`• ${r}`));
-    }
-
-    if (culture.length) {
-      lines.push("");
-      lines.push("*Culture:*");
-      culture.forEach((r) => lines.push(`• ${r}`));
-    }
+  if (fashion.length) {
+    refParts.push(`<b>Fashion</b>`);
+    fashion.forEach((r) => refParts.push(`• ${r}`));
   }
 
-  return lines.filter(Boolean).join("\n");
+  if (music.length) {
+    if (refParts.length) refParts.push("");
+    refParts.push(`<b>Music</b>`);
+    music.forEach((r) => refParts.push(`• ${r}`));
+  }
+
+  if (culture.length) {
+    if (refParts.length) refParts.push("");
+    refParts.push(`<b>Culture</b>`);
+    culture.forEach((r) => refParts.push(`• ${r}`));
+  }
+
+  if (refParts.length) {
+    // Divider between body and refs
+    parts.push(DIVIDER);
+    parts.push(refParts.join("\n"));
+  }
+
+  // Join with blank lines between major blocks
+  return parts.filter(Boolean).join("\n\n");
 }
 
 // ======================================================
@@ -788,7 +838,9 @@ async function processBufferedOutfitInput({ chatId, text, photos }) {
       ? `${modeLabelBase} Engine: Gemini-3.`
       : `${modeLabelBase} Engine: Nano Banana.`;
 
-  const captionText = formatBorealisMessage(modeLabel, borealis);
+  let captionText = formatBorealisMessage(modeLabel, borealis);
+  // Telegram limits: caption <= 1024, message <= 4096
+  captionText = nbImageBuffer ? clampText(captionText, 1024) : clampText(captionText, 4096);
 
   if (nbImageBuffer) {
     await sendTelegramPhoto(chatId, nbImageBuffer, captionText);
@@ -1040,42 +1092,67 @@ app.post("/api/outfit", async (req, res) => {
 
 /**
  * Telegram webhook.
+ * IMPORTANT: ACK immediately to avoid Telegram retries (duplicate updates).
  */
-app.post("/webhook", async (req, res) => {
-  try {
-    const update = req.body;
-    console.log("📩 Incoming update:", JSON.stringify(update, null, 2));
+app.post("/webhook", (req, res) => {
+  // ✅ ACK immediately
+  res.sendStatus(200);
 
-    const message = update.message || update.edited_message;
-    if (!message) {
-      console.log("⚪ No message field in update");
-      return res.sendStatus(200);
+  // Process after ACK
+  setImmediate(async () => {
+    try {
+      const update = req.body;
+
+      // ✅ Dedup by update_id
+      if (update?.update_id != null) {
+        const updateKey = `u:${update.update_id}`;
+        if (isDuplicate(updateKey)) {
+          console.log("🟠 Duplicate update skipped:", update.update_id);
+          return;
+        }
+      }
+
+      console.log("📩 Incoming update:", JSON.stringify(update, null, 2));
+
+      const message = update.message || update.edited_message;
+      if (!message) {
+        console.log("⚪ No message field in update");
+        return;
+      }
+
+      const chatId = message.chat?.id;
+
+      // ✅ Dedup by (chatId, message_id)
+      if (message?.message_id != null && chatId != null) {
+        const msgKey = `m:${chatId}:${message.message_id}`;
+        if (isDuplicate(msgKey)) {
+          console.log("🟠 Duplicate message skipped:", msgKey);
+          return;
+        }
+      }
+
+      const textOrCaption = (message.text || message.caption || "").trim();
+
+      if (textOrCaption.startsWith("/clear")) {
+        clearBufferedPhotos(chatId);
+        await sendTelegramMessage(
+          chatId,
+          "Buffer cleared. Send new photos + text to start a fresh look."
+        );
+        return;
+      }
+
+      const hasPhoto = Boolean(message.photo && message.photo.length);
+
+      if (hasPhoto) {
+        await handleOutfitOnly(message);
+      } else {
+        await handleTextOnly(message);
+      }
+    } catch (err) {
+      console.error("❌ Error in webhook async handler:", err?.response?.data || err);
     }
-
-    const chatId = message.chat?.id;
-    const textOrCaption = (message.text || message.caption || "").trim();
-    if (textOrCaption.startsWith("/clear")) {
-      clearBufferedPhotos(chatId);
-      await sendTelegramMessage(
-        chatId,
-        "Buffer cleared. Send new photos + text to start a fresh look."
-      );
-      return res.sendStatus(200);
-    }
-
-    const hasPhoto = Boolean(message.photo && message.photo.length);
-
-    if (hasPhoto) {
-      await handleOutfitOnly(message);
-    } else {
-      await handleTextOnly(message);
-    }
-
-    res.sendStatus(200);
-  } catch (err) {
-    console.error("❌ Error in /webhook:", err?.response?.data || err);
-    res.sendStatus(200);
-  }
+  });
 });
 
 app.listen(PORT, () => {
